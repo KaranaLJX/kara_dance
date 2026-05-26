@@ -10,45 +10,89 @@
     <main class="popup">
       <h1>B站扒舞助手</h1>
       <p id="tab-info">正在读取当前标签页...</p>
-      <section class="card">
-        <div class="row">
-          <span>页面</span>
-          <strong id="page-status">检测中</strong>
-        </div>
-        <div class="row">
-          <span>视频</span>
-          <strong id="video-status">检测中</strong>
-        </div>
-        <div class="row">
-          <span>时间</span>
-          <strong id="time-status">--:--</strong>
-        </div>
-        <div class="row">
-          <span>倍速</span>
-          <strong id="rate-status">x1.0</strong>
-        </div>
-        <div class="row">
-          <span>打点数</span>
-          <strong id="marker-count">0</strong>
-        </div>
+
+      <section class="tabs">
+        <button type="button" class="tab-button active" data-view="current">当前视频</button>
+        <button type="button" class="tab-button" data-view="history">历史列表</button>
       </section>
 
-      <section class="grid">
-        <button type="button" data-action="toggle-play">播放 / 暂停</button>
-        <button type="button" data-action="add-marker">记录当前点</button>
-        <button type="button" data-action="jump-previous">上一个点</button>
-        <button type="button" data-action="jump-next">下一个点</button>
-        <button type="button" data-action="slower">减速</button>
-        <button type="button" data-action="faster">加速</button>
-        <button type="button" data-action="toggle-loop">片段循环</button>
-        <button type="button" data-action="toggle-panel">显示/隐藏面板</button>
+      <section id="current-view" class="view active">
+        <section class="card">
+          <div class="row">
+            <span>页面</span>
+            <strong id="page-status">检测中</strong>
+          </div>
+          <div class="row">
+            <span>视频</span>
+            <strong id="video-status">检测中</strong>
+          </div>
+          <div class="row">
+            <span>时间</span>
+            <strong id="time-status">--:--</strong>
+          </div>
+          <div class="row">
+            <span>倍速</span>
+            <strong id="rate-status">x1.0</strong>
+          </div>
+          <div class="row">
+            <span>打点数</span>
+            <strong id="marker-count">0</strong>
+          </div>
+          <div class="row">
+            <span>A-B 循环</span>
+            <strong id="loop-status">未设置</strong>
+          </div>
+        </section>
+
+        <section class="grid">
+          <button type="button" data-action="toggle-play">播放 / 暂停</button>
+          <button type="button" data-action="add-marker">记录当前点</button>
+          <button type="button" data-action="jump-previous">上一个点</button>
+          <button type="button" data-action="jump-next">下一个点</button>
+          <button type="button" data-action="slower">减速</button>
+          <button type="button" data-action="faster">加速</button>
+          <button type="button" class="secondary" data-action="set-loop-start">设为 A 点</button>
+          <button type="button" class="secondary" data-action="set-loop-end">设为 B 点</button>
+          <button type="button" class="secondary" data-action="toggle-loop">开关 A-B 循环</button>
+          <button type="button" class="danger" data-action="clear-loop">清空 A-B</button>
+          <button type="button" class="secondary" data-action="toggle-panel">显示/隐藏面板</button>
+          <button type="button" class="danger" data-action="clear-markers">清空打点</button>
+        </section>
+
+        <section class="card">
+          <div class="section-header">
+            <div class="section-title">当前视频打点</div>
+            <div class="inline-actions">
+              <button type="button" class="mini secondary" data-export-kind="txt" data-export-source="current">导出 TXT</button>
+              <button type="button" class="mini secondary" data-export-kind="json" data-export-source="current">导出 JSON</button>
+            </div>
+          </div>
+          <div id="marker-list" class="marker-list">
+            <p class="empty">还没有打点，先在想拆解的动作处点一下。</p>
+          </div>
+        </section>
       </section>
 
-      <section class="card">
-        <div class="section-title">当前视频打点</div>
-        <div id="marker-list" class="marker-list">
-          <p class="empty">还没有打点，先在想拆解的动作处点一下。</p>
-        </div>
+      <section id="history-view" class="view">
+        <section class="card">
+          <div class="section-title">历史视频</div>
+          <div id="history-list" class="history-list">
+            <p class="empty">还没有历史记录。</p>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="section-header">
+            <div class="section-title">历史详情</div>
+            <div class="inline-actions">
+              <button type="button" class="mini secondary" data-export-kind="txt" data-export-source="history">导出 TXT</button>
+              <button type="button" class="mini secondary" data-export-kind="json" data-export-source="history">导出 JSON</button>
+            </div>
+          </div>
+          <div id="history-detail" class="history-detail">
+            <p class="empty">先从上面选一个视频。</p>
+          </div>
+        </section>
       </section>
 
       <button id="refresh-button" type="button" class="secondary">刷新状态</button>

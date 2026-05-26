@@ -1,18 +1,136 @@
 const ROOT_ID = "dance-helper-root";
 const STYLE_ID = "dance-helper-style";
-const STORAGE_PREFIX = "dance-helper-markers:";
+const VIDEO_STORAGE_PREFIX = "dance-helper-video:";
+const HISTORY_KEY = "danceHelperHistory";
 const SETTINGS_KEY = "danceHelperSettings";
 const SPEED_STEPS = [0.3, 0.5, 0.7, 0.9, 1, 1.25, 1.5, 2];
+const LOOP_EPSILON = 0.05;
 
 const state = {
   url: location.href,
-  markers: [],
-  loopEnabled: false,
-  selectedSegmentIndex: -1,
+  mounted: false,
   panelVisible: true,
   videoKey: "",
-  mounted: false
+  videoData: createEmptyVideoData()
 };
+
+function roundTime(value) {
+  return Number(Number(value).toFixed(1));
+}
+
+function isFiniteNumber(value) {
+  return Number.isFinite(value);
+}
+
+function createEmptyVideoData(videoKey = "", title = "", url = location.href) {
+  return {
+    videoKey,
+    title,
+    url,
+    updatedAt: 0,
+    markers: [],
+    loopRange: {
+      enabled: false,
+      start: null,
+      end: null
+    }
+  };
+}
+
+function createMarker(rawMarker, index = 0) {
+  if (typeof rawMarker === "number") {
+    const time = roundTime(rawMarker);
+    return {
+      id: `marker_${Math.round(time * 10)}_${index}`,
+      time,
+      note: ""
+    };
+  }
+
+  const time = roundTime(rawMarker?.time ?? rawMarker?.value ?? 0);
+  const note = typeof rawMarker?.note === "string" ? rawMarker.note.trim() : "";
+
+  return {
+    id: typeof rawMarker?.id === "string" && rawMarker.id ? rawMarker.id : `marker_${Math.round(time * 10)}_${index}`,
+    time,
+    note
+  };
+}
+
+function normalizeMarkers(markers) {
+  const normalized = (Array.isArray(markers) ? markers : [])
+    .map((marker, index) => createMarker(marker, index))
+    .filter((marker) => isFiniteNumber(marker.time) && marker.time >= 0)
+    .sort((left, right) => left.time - right.time);
+
+  const deduped = [];
+  for (const marker of normalized) {
+    const previous = deduped[deduped.length - 1];
+    if (previous && Math.abs(previous.time - marker.time) < 0.05) {
+      if (!previous.note && marker.note) {
+        previous.note = marker.note;
+      }
+      continue;
+    }
+    deduped.push(marker);
+  }
+
+  return deduped;
+}
+
+function normalizeLoopRange(rawLoopRange) {
+  const start = isFiniteNumber(rawLoopRange?.start) ? roundTime(rawLoopRange.start) : null;
+  const end = isFiniteNumber(rawLoopRange?.end) ? roundTime(rawLoopRange.end) : null;
+
+  if (start !== null && end !== null) {
+    const rangeStart = Math.min(start, end);
+    const rangeEnd = Math.max(start, end);
+    return {
+      enabled: Boolean(rawLoopRange?.enabled) && rangeEnd - rangeStart > 0,
+      start: rangeStart,
+      end: rangeEnd
+    };
+  }
+
+  return {
+    enabled: false,
+    start,
+    end
+  };
+}
+
+function normalizeVideoData(rawVideoData, videoKey, title, url) {
+  if (Array.isArray(rawVideoData)) {
+    return {
+      ...createEmptyVideoData(videoKey, title, url),
+      markers: normalizeMarkers(rawVideoData)
+    };
+  }
+
+  const normalized = createEmptyVideoData(videoKey, title, url);
+  if (!rawVideoData || typeof rawVideoData !== "object") {
+    return normalized;
+  }
+
+  normalized.title = typeof rawVideoData.title === "string" && rawVideoData.title ? rawVideoData.title : title;
+  normalized.url = typeof rawVideoData.url === "string" && rawVideoData.url ? rawVideoData.url : url;
+  normalized.updatedAt = isFiniteNumber(rawVideoData.updatedAt) ? rawVideoData.updatedAt : 0;
+  normalized.markers = normalizeMarkers(rawVideoData.markers);
+  normalized.loopRange = normalizeLoopRange(rawVideoData.loopRange);
+  return normalized;
+}
+
+function getVideoStorageKey(videoKey) {
+  return `${VIDEO_STORAGE_PREFIX}${videoKey}`;
+}
+
+function hasPersistentData(videoData) {
+  return (
+    videoData.markers.length > 0 ||
+    isFiniteNumber(videoData.loopRange.start) ||
+    isFiniteNumber(videoData.loopRange.end)
+  );
+}
 
 function isBilibiliPage() {
   return location.host.includes("bilibili.com");
@@ -24,18 +142,17 @@ function getVideoElement() {
 }
 
 function getVideoTitle() {
-  const title = document.querySelector("h1");
-  return title?.textContent?.trim() || document.title || "Bilibili 视频";
+  const titleElement = document.querySelector("h1");
+  return titleElement?.textContent?.trim() || document.title || "Bilibili 视频";
 }
 
 function getVideoKey() {
-  const path = location.pathname;
-  const matchedId = path.match(/(BV[\w]+|av\d+|ep\d+|ss\d+)/i);
-  return matchedId ? matchedId[1].toUpperCase() : `${location.host}${path}`;
+  const matchedId = location.pathname.match(/(BV[\w]+|av\d+|ep\d+|ss\d+)/i);
+  return matchedId ? matchedId[1].toUpperCase() : `${location.host}${location.pathname}`;
 }
 
 function formatTime(seconds) {
-  if (!Number.isFinite(seconds)) {
+  if (!isFiniteNumber(seconds)) {
     return "--:--";
   }
 
@@ -53,20 +170,58 @@ function formatTime(seconds) {
   return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
 
-function normalizeMarkers(markers) {
-  return [...new Set(markers.map((value) => Number(value.toFixed(1))))]
-    .filter((value) => Number.isFinite(value) && value >= 0)
-    .sort((a, b) => a - b);
+function getMarkers() {
+  return state.videoData.markers;
 }
 
-async function saveMarkers() {
-  if (!state.videoKey) {
-    return;
+function getMarkerById(id) {
+  return getMarkers().find((marker) => marker.id === id) || null;
+}
+
+function getLoopRange() {
+  return state.videoData.loopRange;
+}
+
+function getActiveLoopRange() {
+  const loopRange = normalizeLoopRange(getLoopRange());
+  if (!loopRange.enabled || loopRange.start === null || loopRange.end === null) {
+    return null;
+  }
+  return loopRange;
+}
+
+function getLoopStateText() {
+  const loopRange = getLoopRange();
+  if (loopRange.start === null && loopRange.end === null) {
+    return "未设置";
   }
 
-  await chrome.storage.local.set({
-    [`${STORAGE_PREFIX}${state.videoKey}`]: state.markers
-  });
+  if (loopRange.start !== null && loopRange.end !== null) {
+    const label = `${formatTime(loopRange.start)} - ${formatTime(loopRange.end)}`;
+    return loopRange.enabled ? `${label} (循环中)` : `${label} (已就绪)`;
+  }
+
+  return loopRange.start !== null ? `A: ${formatTime(loopRange.start)}` : `B: ${formatTime(loopRange.end)}`;
+}
+
+function getCurrentSegmentIndex() {
+  const video = getVideoElement();
+  const markers = getMarkers();
+  if (!video || markers.length < 2) {
+    return -1;
+  }
+
+  for (let index = 0; index < markers.length - 1; index += 1) {
+    if (video.currentTime >= markers[index].time && video.currentTime < markers[index + 1].time) {
+      return index;
+    }
+  }
+
+  if (video.currentTime < markers[0].time) {
+    return 0;
+  }
+
+  return markers.length - 2;
 }
 
 async function saveSettings() {
@@ -82,74 +237,58 @@ async function loadSettings() {
   state.panelVisible = result?.[SETTINGS_KEY]?.panelVisible ?? true;
 }
 
-async function loadMarkers() {
+async function loadCurrentVideoData() {
   state.videoKey = getVideoKey();
-  const storageKey = `${STORAGE_PREFIX}${state.videoKey}`;
+  const storageKey = getVideoStorageKey(state.videoKey);
+  const title = getVideoTitle();
   const result = await chrome.storage.local.get(storageKey);
-  state.markers = normalizeMarkers(result[storageKey] || []);
-  state.selectedSegmentIndex = clampSegmentIndex(state.selectedSegmentIndex);
+  state.videoData = normalizeVideoData(result[storageKey], state.videoKey, title, location.href);
 }
 
-function getCurrentSegmentIndex() {
-  const video = getVideoElement();
-  if (!video || state.markers.length < 2) {
-    return -1;
+async function saveCurrentVideoData() {
+  state.videoData.videoKey = state.videoKey;
+  state.videoData.title = getVideoTitle();
+  state.videoData.url = location.href;
+  state.videoData.updatedAt = Date.now();
+  state.videoData.markers = normalizeMarkers(state.videoData.markers);
+  state.videoData.loopRange = normalizeLoopRange(state.videoData.loopRange);
+
+  const storageKey = getVideoStorageKey(state.videoKey);
+  const historyResult = await chrome.storage.local.get(HISTORY_KEY);
+  const history = historyResult[HISTORY_KEY] || {};
+
+  if (hasPersistentData(state.videoData)) {
+    await chrome.storage.local.set({
+      [storageKey]: state.videoData,
+      [HISTORY_KEY]: {
+        ...history,
+        [state.videoKey]: {
+          videoKey: state.videoKey,
+          title: state.videoData.title,
+          url: state.videoData.url,
+          updatedAt: state.videoData.updatedAt,
+          markerCount: state.videoData.markers.length,
+          hasLoop:
+            isFiniteNumber(state.videoData.loopRange.start) &&
+            isFiniteNumber(state.videoData.loopRange.end)
+        }
+      }
+    });
+    return;
   }
 
-  const currentTime = video.currentTime;
-  for (let index = 0; index < state.markers.length - 1; index += 1) {
-    if (currentTime >= state.markers[index] && currentTime < state.markers[index + 1]) {
-      return index;
-    }
-  }
-
-  if (currentTime < state.markers[0]) {
-    return 0;
-  }
-
-  return state.markers.length - 2;
-}
-
-function clampSegmentIndex(index) {
-  if (state.markers.length < 2) {
-    return -1;
-  }
-
-  return Math.max(0, Math.min(index, state.markers.length - 2));
-}
-
-function getLoopSegment() {
-  const segmentIndex =
-    state.selectedSegmentIndex >= 0 ? state.selectedSegmentIndex : getCurrentSegmentIndex();
-
-  if (segmentIndex < 0 || state.markers.length < 2) {
-    return null;
-  }
-
-  return {
-    index: segmentIndex,
-    start: state.markers[segmentIndex],
-    end: state.markers[segmentIndex + 1]
-  };
+  delete history[state.videoKey];
+  await chrome.storage.local.remove(storageKey);
+  await chrome.storage.local.set({ [HISTORY_KEY]: history });
 }
 
 function seekTo(seconds) {
   const video = getVideoElement();
-  if (!video) {
+  if (!video || !isFiniteNumber(seconds)) {
     return false;
   }
 
   video.currentTime = Math.max(0, seconds);
-  return true;
-}
-
-function setPlaybackRate(rate) {
-  const video = getVideoElement();
-  if (!video) {
-    return false;
-  }
-
-  video.playbackRate = Math.min(2, Math.max(0.1, rate));
   return true;
 }
 
@@ -164,8 +303,7 @@ function changePlaybackRate(direction) {
     index = SPEED_STEPS.length - 1;
   }
 
-  index += direction;
-  index = Math.max(0, Math.min(index, SPEED_STEPS.length - 1));
+  index = Math.max(0, Math.min(index + direction, SPEED_STEPS.length - 1));
   video.playbackRate = SPEED_STEPS[index];
   return true;
 }
@@ -191,77 +329,138 @@ async function addMarker() {
     return false;
   }
 
-  state.markers = normalizeMarkers([...state.markers, video.currentTime]);
-  await saveMarkers();
+  state.videoData.markers = normalizeMarkers([
+    ...getMarkers(),
+    {
+      id: `marker_${Date.now()}`,
+      time: roundTime(video.currentTime),
+      note: ""
+    }
+  ]);
+  await saveCurrentVideoData();
   updatePanel();
   return true;
 }
 
-async function removeMarker(index) {
-  if (!Number.isInteger(index) || index < 0 || index >= state.markers.length) {
+async function updateMarkerNote(id, note) {
+  const marker = getMarkerById(id);
+  if (!marker) {
     return false;
   }
 
-  state.markers.splice(index, 1);
-  state.markers = normalizeMarkers(state.markers);
-  state.selectedSegmentIndex = clampSegmentIndex(state.selectedSegmentIndex);
-  await saveMarkers();
+  marker.note = typeof note === "string" ? note.trim() : "";
+  await saveCurrentVideoData();
+  updatePanel();
+  return true;
+}
+
+async function removeMarker(id) {
+  const nextMarkers = getMarkers().filter((marker) => marker.id !== id);
+  if (nextMarkers.length === getMarkers().length) {
+    return false;
+  }
+
+  state.videoData.markers = nextMarkers;
+  await saveCurrentVideoData();
   updatePanel();
   return true;
 }
 
 async function clearMarkers() {
-  state.markers = [];
-  state.selectedSegmentIndex = -1;
-  state.loopEnabled = false;
-  await saveMarkers();
+  state.videoData.markers = [];
+  state.videoData.loopRange.enabled = false;
+  await saveCurrentVideoData();
   updatePanel();
   return true;
 }
 
 function jumpMarker(direction) {
   const video = getVideoElement();
-  if (!video || !state.markers.length) {
+  const markers = getMarkers();
+  if (!video || !markers.length) {
     return false;
   }
 
-  const currentTime = video.currentTime;
-  let target = null;
-
+  let targetTime = null;
   if (direction < 0) {
-    for (let index = state.markers.length - 1; index >= 0; index -= 1) {
-      if (state.markers[index] < currentTime - 0.2) {
-        target = state.markers[index];
+    for (let index = markers.length - 1; index >= 0; index -= 1) {
+      if (markers[index].time < video.currentTime - 0.2) {
+        targetTime = markers[index].time;
         break;
       }
     }
-    if (target === null) {
-      target = state.markers[0];
+    if (targetTime === null) {
+      targetTime = markers[0].time;
     }
   } else {
-    for (let index = 0; index < state.markers.length; index += 1) {
-      if (state.markers[index] > currentTime + 0.2) {
-        target = state.markers[index];
+    for (let index = 0; index < markers.length; index += 1) {
+      if (markers[index].time > video.currentTime + 0.2) {
+        targetTime = markers[index].time;
         break;
       }
     }
-    if (target === null) {
-      target = state.markers[state.markers.length - 1];
+    if (targetTime === null) {
+      targetTime = markers[markers.length - 1].time;
     }
   }
 
-  seekTo(target);
+  return seekTo(targetTime);
+}
+
+async function setLoopPoint(point, markerId) {
+  let targetTime = null;
+  if (typeof markerId === "string") {
+    const marker = getMarkerById(markerId);
+    if (marker) {
+      targetTime = marker.time;
+    }
+  }
+
+  if (targetTime === null) {
+    const video = getVideoElement();
+    if (!video) {
+      return false;
+    }
+    targetTime = roundTime(video.currentTime);
+  }
+
+  if (point === "start") {
+    state.videoData.loopRange.start = targetTime;
+  }
+  if (point === "end") {
+    state.videoData.loopRange.end = targetTime;
+  }
+
+  state.videoData.loopRange = normalizeLoopRange(state.videoData.loopRange);
+  if (state.videoData.loopRange.start === null || state.videoData.loopRange.end === null) {
+    state.videoData.loopRange.enabled = false;
+  }
+
+  await saveCurrentVideoData();
+  updatePanel();
   return true;
 }
 
-function toggleLoop() {
-  const segment = getLoopSegment();
-  if (!segment) {
+async function clearLoopRange() {
+  state.videoData.loopRange = {
+    enabled: false,
+    start: null,
+    end: null
+  };
+  await saveCurrentVideoData();
+  updatePanel();
+  return true;
+}
+
+async function toggleLoop() {
+  const normalizedLoopRange = normalizeLoopRange(state.videoData.loopRange);
+  if (normalizedLoopRange.start === null || normalizedLoopRange.end === null) {
     return false;
   }
 
-  state.selectedSegmentIndex = segment.index;
-  state.loopEnabled = !state.loopEnabled;
+  normalizedLoopRange.enabled = !normalizedLoopRange.enabled;
+  state.videoData.loopRange = normalizedLoopRange;
+  await saveCurrentVideoData();
   updatePanel();
   return true;
 }
@@ -279,7 +478,7 @@ function ensureStyles() {
       top: 24px;
       right: 24px;
       z-index: 2147483647;
-      width: 300px;
+      width: 320px;
       font-family: Arial, sans-serif;
       color: #101828;
     }
@@ -327,7 +526,8 @@ function ensureStyles() {
     #${ROOT_ID} .stat strong {
       display: block;
       margin-top: 4px;
-      font-size: 14px;
+      font-size: 13px;
+      line-height: 1.3;
     }
     #${ROOT_ID} .buttons {
       display: grid;
@@ -354,25 +554,35 @@ function ensureStyles() {
       display: flex;
       flex-direction: column;
       gap: 8px;
-      max-height: 220px;
+      max-height: 260px;
       overflow-y: auto;
     }
     #${ROOT_ID} .marker-item {
-      display: grid;
-      grid-template-columns: auto 1fr auto;
-      gap: 8px;
-      align-items: center;
-      padding: 8px 10px;
+      padding: 10px;
       border-radius: 10px;
       background: #f8fafc;
       font-size: 12px;
     }
-    #${ROOT_ID} .marker-item.active {
-      outline: 2px solid #2563eb;
+    #${ROOT_ID} .marker-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
     }
-    #${ROOT_ID} .marker-item button {
-      padding: 6px 8px;
-      font-size: 12px;
+    #${ROOT_ID} .marker-note {
+      color: #475467;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+    #${ROOT_ID} .marker-actions {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+      margin-top: 8px;
+    }
+    #${ROOT_ID} .marker-actions button {
+      padding: 6px 0;
+      font-size: 11px;
     }
     #${ROOT_ID} .empty {
       padding: 12px 8px;
@@ -406,7 +616,7 @@ function ensureRoot() {
           <div class="stat">当前时间<strong data-role="current-time">--:--</strong></div>
           <div class="stat">播放速度<strong data-role="rate">x1.0</strong></div>
           <div class="stat">打点数<strong data-role="marker-count">0</strong></div>
-          <div class="stat">循环片段<strong data-role="loop">关闭</strong></div>
+          <div class="stat">A-B循环<strong data-role="loop-state">未设置</strong></div>
         </div>
         <div class="buttons">
           <button data-action="toggle-play">播放 / 暂停</button>
@@ -415,8 +625,10 @@ function ensureRoot() {
           <button data-action="jump-next">下一个点</button>
           <button data-action="slower">减速</button>
           <button data-action="faster">加速</button>
-          <button class="secondary" data-action="toggle-loop">片段循环</button>
-          <button class="danger" data-action="clear-markers">清空打点</button>
+          <button class="secondary" data-action="set-loop-start">设为A点</button>
+          <button class="secondary" data-action="set-loop-end">设为B点</button>
+          <button class="secondary" data-action="toggle-loop">开关循环</button>
+          <button class="danger" data-action="clear-loop">清空A-B</button>
         </div>
         <div class="marker-list" data-role="marker-list"></div>
       </div>
@@ -429,14 +641,17 @@ function ensureRoot() {
       return;
     }
 
-    const { action, index } = target.dataset;
+    const button = target.closest("button[data-action]");
+    if (!(button instanceof HTMLElement)) {
+      return;
+    }
+
+    const { action, id } = button.dataset;
     if (!action) {
       return;
     }
 
-    await performAction(action, {
-      index: index === undefined ? undefined : Number(index)
-    });
+    await performAction(action, { id });
   });
 
   document.body.appendChild(root);
@@ -452,56 +667,79 @@ function updatePanel() {
   const currentTime = root.querySelector('[data-role="current-time"]');
   const rate = root.querySelector('[data-role="rate"]');
   const markerCount = root.querySelector('[data-role="marker-count"]');
-  const loop = root.querySelector('[data-role="loop"]');
+  const loopState = root.querySelector('[data-role="loop-state"]');
   const markerList = root.querySelector('[data-role="marker-list"]');
 
-  subtitle.textContent = video ? getVideoTitle() : "当前页面未检测到视频";
+  subtitle.textContent = video ? state.videoData.title || getVideoTitle() : "当前页面未检测到视频";
   currentTime.textContent = video ? formatTime(video.currentTime) : "--:--";
   rate.textContent = video ? `x${video.playbackRate.toFixed(1)}` : "x1.0";
-  markerCount.textContent = String(state.markers.length);
-
-  const segment = getLoopSegment();
-  loop.textContent =
-    state.loopEnabled && segment
-      ? `${formatTime(segment.start)} - ${formatTime(segment.end)}`
-      : "关闭";
+  markerCount.textContent = String(getMarkers().length);
+  loopState.textContent = getLoopStateText();
 
   markerList.innerHTML = "";
-  if (!state.markers.length) {
+  if (!getMarkers().length) {
     const empty = document.createElement("div");
     empty.className = "empty";
-    empty.textContent = "先暂停在动作关键帧，再点击“记录当前点”。";
+    empty.textContent = "先暂停在关键动作，再点“记录当前点”，之后可补备注并设 A/B。";
     markerList.appendChild(empty);
     return;
   }
 
-  state.markers.forEach((marker, index) => {
+  const activeLoopRange = getActiveLoopRange();
+  for (const marker of getMarkers()) {
     const item = document.createElement("div");
     item.className = "marker-item";
-    if (
-      state.selectedSegmentIndex >= 0 &&
-      (index === state.selectedSegmentIndex || index === state.selectedSegmentIndex + 1)
-    ) {
-      item.classList.add("active");
-    }
+
+    const top = document.createElement("div");
+    top.className = "marker-top";
 
     const time = document.createElement("strong");
-    time.textContent = formatTime(marker);
+    time.textContent = formatTime(marker.time);
 
-    const seek = document.createElement("button");
-    seek.textContent = "跳转";
-    seek.dataset.action = "seek-marker";
-    seek.dataset.index = String(index);
+    const loopTag = document.createElement("span");
+    if (activeLoopRange) {
+      if (Math.abs(activeLoopRange.start - marker.time) < 0.05) {
+        loopTag.textContent = "A";
+      }
+      if (Math.abs(activeLoopRange.end - marker.time) < 0.05) {
+        loopTag.textContent = loopTag.textContent ? `${loopTag.textContent}/B` : "B";
+      }
+    }
 
-    const remove = document.createElement("button");
-    remove.textContent = "删除";
-    remove.className = "danger";
-    remove.dataset.action = "remove-marker";
-    remove.dataset.index = String(index);
+    top.append(time, loopTag);
 
-    item.append(time, seek, remove);
+    const note = document.createElement("div");
+    note.className = "marker-note";
+    note.textContent = marker.note || "无备注";
+
+    const actions = document.createElement("div");
+    actions.className = "marker-actions";
+
+    const seekButton = document.createElement("button");
+    seekButton.textContent = "跳转";
+    seekButton.dataset.action = "seek-marker";
+    seekButton.dataset.id = marker.id;
+
+    const setAButton = document.createElement("button");
+    setAButton.textContent = "设A";
+    setAButton.dataset.action = "set-loop-start";
+    setAButton.dataset.id = marker.id;
+
+    const setBButton = document.createElement("button");
+    setBButton.textContent = "设B";
+    setBButton.dataset.action = "set-loop-end";
+    setBButton.dataset.id = marker.id;
+
+    const removeButton = document.createElement("button");
+    removeButton.textContent = "删除";
+    removeButton.className = "danger";
+    removeButton.dataset.action = "remove-marker";
+    removeButton.dataset.id = marker.id;
+
+    actions.append(seekButton, setAButton, setBButton, removeButton);
+    item.append(top, note, actions);
     markerList.appendChild(item);
-  });
+  }
 }
 
 function getState() {
@@ -510,21 +748,22 @@ function getState() {
     ok: true,
     isBilibili: isBilibiliPage(),
     hasVideo: Boolean(video),
-    title: getVideoTitle(),
+    title: state.videoData.title || getVideoTitle(),
     url: location.href,
+    videoKey: state.videoKey,
     currentTime: video?.currentTime ?? 0,
     duration: video?.duration ?? 0,
     playbackRate: video?.playbackRate ?? 1,
     paused: video?.paused ?? true,
-    markers: state.markers,
-    loopEnabled: state.loopEnabled,
+    markers: getMarkers(),
+    loopRange: getLoopRange(),
     currentSegmentIndex: getCurrentSegmentIndex()
   };
 }
 
 async function performAction(type, payload = {}) {
   const video = getVideoElement();
-  if (!video && type !== "get-state" && type !== "toggle-panel") {
+  if (!video && !["get-state", "toggle-panel"].includes(type)) {
     return {
       ...getState(),
       error: "当前页面没有检测到视频。"
@@ -538,25 +777,38 @@ async function performAction(type, payload = {}) {
       state.panelVisible = !state.panelVisible;
       await saveSettings();
       updatePanel();
-      return { ...getState(), message: state.panelVisible ? "面板已显示。" : "面板已隐藏。" };
+      return {
+        ...getState(),
+        message: state.panelVisible ? "面板已显示。" : "面板已隐藏。"
+      };
     case "toggle-play":
       togglePlay();
       updatePanel();
-      return { ...getState(), message: video.paused ? "已暂停。" : "已开始播放。" };
+      return {
+        ...getState(),
+        message: getVideoElement()?.paused ? "已暂停。" : "已开始播放。"
+      };
     case "add-marker":
       await addMarker();
       return { ...getState(), message: "已记录当前时间点。" };
+    case "update-marker-note":
+      if (!(await updateMarkerNote(payload.id, payload.note))) {
+        return { ...getState(), error: "备注保存失败，打点不存在。" };
+      }
+      return { ...getState(), message: "备注已保存。" };
     case "remove-marker":
-      if (!(await removeMarker(payload.index))) {
+      if (!(await removeMarker(payload.id))) {
         return { ...getState(), error: "删除失败，打点不存在。" };
       }
       return { ...getState(), message: "已删除打点。" };
-    case "seek-marker":
-      if (!Number.isInteger(payload.index) || !seekTo(state.markers[payload.index])) {
+    case "seek-marker": {
+      const marker = getMarkerById(payload.id);
+      if (!marker || !seekTo(marker.time)) {
         return { ...getState(), error: "跳转失败。" };
       }
       updatePanel();
       return { ...getState(), message: "已跳转到打点。" };
+    }
     case "clear-markers":
       await clearMarkers();
       return { ...getState(), message: "当前视频打点已清空。" };
@@ -580,17 +832,27 @@ async function performAction(type, payload = {}) {
       changePlaybackRate(-1);
       updatePanel();
       return { ...getState(), message: "已降低倍速。" };
+    case "set-loop-start":
+      if (!(await setLoopPoint("start", payload.id))) {
+        return { ...getState(), error: "A 点设置失败。" };
+      }
+      return { ...getState(), message: "A 点已设置。" };
+    case "set-loop-end":
+      if (!(await setLoopPoint("end", payload.id))) {
+        return { ...getState(), error: "B 点设置失败。" };
+      }
+      return { ...getState(), message: "B 点已设置。" };
     case "toggle-loop":
-      if (!toggleLoop()) {
-        return {
-          ...getState(),
-          error: "至少需要两个打点，才能对片段进行循环。"
-        };
+      if (!(await toggleLoop())) {
+        return { ...getState(), error: "请先把 A 点和 B 点都设置好。" };
       }
       return {
         ...getState(),
-        message: state.loopEnabled ? "片段循环已开启。" : "片段循环已关闭。"
+        message: getLoopRange().enabled ? "A-B 循环已开启。" : "A-B 循环已关闭。"
       };
+    case "clear-loop":
+      await clearLoopRange();
+      return { ...getState(), message: "A-B 循环范围已清空。" };
     default:
       return {
         ...getState(),
@@ -607,19 +869,13 @@ function bindVideoEvents() {
 
   const update = () => updatePanel();
   const enforceLoop = () => {
-    if (!state.loopEnabled) {
+    const activeLoopRange = getActiveLoopRange();
+    if (!activeLoopRange) {
       return;
     }
 
-    const segment = getLoopSegment();
-    if (!segment) {
-      state.loopEnabled = false;
-      updatePanel();
-      return;
-    }
-
-    if (video.currentTime > segment.end - 0.05) {
-      video.currentTime = segment.start;
+    if (video.currentTime >= activeLoopRange.end - LOOP_EPSILON) {
+      video.currentTime = activeLoopRange.start;
     }
   };
 
@@ -636,11 +892,8 @@ function bindVideoEvents() {
 
 async function initializeForCurrentPage() {
   state.url = location.href;
-  state.videoKey = getVideoKey();
-  state.loopEnabled = false;
-  state.selectedSegmentIndex = -1;
   await loadSettings();
-  await loadMarkers();
+  await loadCurrentVideoData();
 
   if (document.body) {
     ensureRoot();
@@ -679,10 +932,9 @@ const observer = new MutationObserver(() => {
     return;
   }
 
-  if (document.getElementById(ROOT_ID) && !document.getElementById(ROOT_ID).isConnected) {
-    initializeForCurrentPage().catch((error) => {
-      console.error("Failed to remount dance helper", error);
-    });
+  if (!document.getElementById(ROOT_ID) && document.body) {
+    ensureRoot();
+    updatePanel();
   }
 
   bindVideoEvents();

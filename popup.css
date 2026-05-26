@@ -1,5 +1,5 @@
 .popup {
-  width: 360px;
+  width: 420px;
   margin: 0;
   padding: 16px;
   font-family: Arial, sans-serif;
@@ -17,6 +17,12 @@ p {
   line-height: 1.4;
 }
 
+button,
+input,
+textarea {
+  font-family: inherit;
+}
+
 button {
   width: 100%;
   border: 0;
@@ -30,6 +36,30 @@ button {
 
 button:hover {
   background: #1d4ed8;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tab-button {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.tab-button.active {
+  background: #2563eb;
+  color: #fff;
+}
+
+.view {
+  display: none;
+}
+
+.view.active {
+  display: block;
 }
 
 .card {
@@ -72,46 +102,110 @@ button:hover {
   background: #0f172a;
 }
 
-.section-title {
-  margin-bottom: 8px;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.marker-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 220px;
-  overflow-y: auto;
-}
-
-.marker-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.marker-time {
-  min-width: 54px;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.marker-item button {
-  width: auto;
-  flex: 1;
-  padding: 8px 10px;
-  font-size: 12px;
-}
-
-.marker-item .danger {
-  flex: 0 0 auto;
+.danger {
   background: #dc2626;
 }
 
-.marker-item .danger:hover {
+.danger:hover {
   background: #b91c1c;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.section-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.inline-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.inline-actions .mini {
+  width: auto;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+.marker-list,
+.history-list,
+.history-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.marker-item,
+.history-item,
+.detail-marker {
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+  padding: 10px;
+  background: #f8fafc;
+}
+
+.marker-top,
+.history-item-top,
+.detail-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.marker-note-input {
+  width: 100%;
+  margin-top: 8px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  box-sizing: border-box;
+  color: #101828;
+  background: #fff;
+}
+
+.marker-actions,
+.history-actions,
+.detail-actions {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.history-actions {
+  grid-template-columns: 1fr;
+}
+
+.marker-actions button,
+.history-actions button,
+.detail-actions button {
+  padding: 7px 8px;
+  font-size: 11px;
+}
+
+.history-item.active {
+  border-color: #2563eb;
+  box-shadow: inset 0 0 0 1px #2563eb;
+}
+
+.history-meta,
+.detail-meta,
+.detail-note {
+  margin-top: 6px;
+  color: #475467;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .empty {
