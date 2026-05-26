@@ -84,7 +84,9 @@ function normalizeHistory(history) {
         start: Number(normalizedStart.toFixed(1)),
         end: Number(normalizedEnd.toFixed(1)),
         createdAt: Number(item.createdAt) || Date.now(),
-        title: item.title || getVideoTitle()
+        title: item.title || getVideoTitle(),
+        videoKey: item.videoKey || state.videoKey || getVideoKey(),
+        url: item.url || location.href
       };
     })
     .filter(Boolean)
@@ -375,7 +377,9 @@ async function saveCurrentABSegment() {
     start: range.start,
     end: range.end,
     createdAt: Date.now(),
-    title: getVideoTitle()
+    title: getVideoTitle(),
+    videoKey: state.videoKey || getVideoKey(),
+    url: location.href
   };
 
   state.history = normalizeHistory([entry, ...state.history]);
@@ -383,6 +387,14 @@ async function saveCurrentABSegment() {
   await saveHistory();
   updatePanel();
   return true;
+}
+
+function findHistoryIndexById(entryId) {
+  if (!entryId) {
+    return -1;
+  }
+
+  return state.history.findIndex((item) => item.id === entryId);
 }
 
 function selectHistorySegment(index) {
@@ -403,6 +415,20 @@ function seekHistorySegment(index) {
     return false;
   }
   return seekTo(state.history[index].start);
+}
+
+function loadHistorySegment(payload) {
+  const start = Number(payload && payload.start);
+  const end = Number(payload && payload.end);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || Math.abs(end - start) < 0.1) {
+    return false;
+  }
+
+  state.abStart = Number(Math.min(start, end).toFixed(1));
+  state.abEnd = Number(Math.max(start, end).toFixed(1));
+  state.activeHistoryId = (payload && payload.entryId) || "";
+  updatePanel();
+  return seekTo(state.abStart);
 }
 
 async function removeHistorySegment(index) {
@@ -808,6 +834,7 @@ function getState() {
     paused: video ? video.paused : true,
     markers: state.markers,
     history: state.history,
+    videoKey: state.videoKey,
     loopEnabled: state.loopEnabled,
     currentSegmentIndex: getCurrentSegmentIndex(),
     abStart: state.abStart,
@@ -915,11 +942,23 @@ async function performAction(type, payload) {
       }
       updatePanel();
       return { ...getState(), message: "已载入历史片段并跳转到起点。" };
+    case "load-history-segment":
+      if (!loadHistorySegment(payload)) {
+        return { ...getState(), error: "载入历史片段失败。" };
+      }
+      return { ...getState(), message: "已载入历史片段并跳转到起点。" };
     case "remove-history":
       if (!(await removeHistorySegment(payload.index))) {
         return { ...getState(), error: "删除历史片段失败。" };
       }
       return { ...getState(), message: "已删除历史片段。" };
+    case "remove-history-entry": {
+      const historyIndex = findHistoryIndexById(payload.entryId);
+      if (!(await removeHistorySegment(historyIndex))) {
+        return { ...getState(), error: "删除历史片段失败。" };
+      }
+      return { ...getState(), message: "已删除历史片段。" };
+    }
     case "clear-history":
       await clearHistory();
       return { ...getState(), message: "历史片段已清空。" };

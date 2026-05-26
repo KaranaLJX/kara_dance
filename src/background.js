@@ -35,9 +35,7 @@ chrome.commands.onCommand.addListener((command) => {
     faster: "faster",
     slower: "slower",
     "previous-marker": "jump-previous",
-    "next-marker": "jump-next",
-    "add-marker": "add-marker",
-    "toggle-panel": "toggle-panel"
+    "next-marker": "jump-next"
   };
 
   const action = commandToAction[command];

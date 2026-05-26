@@ -57,20 +57,6 @@
         "mac": "Option+Shift+Down"
       },
       "description": "跳到下一个打点"
-    },
-    "add-marker": {
-      "suggested_key": {
-        "default": "Ctrl+Shift+L",
-        "mac": "Command+Shift+L"
-      },
-      "description": "记录当前时间点"
-    },
-    "toggle-panel": {
-      "suggested_key": {
-        "default": "Ctrl+Shift+Y",
-        "mac": "Command+Shift+Y"
-      },
-      "description": "显示或隐藏侧边面板"
     }
   }
 }
