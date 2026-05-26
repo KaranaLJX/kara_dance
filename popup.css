@@ -32,6 +32,11 @@ button:hover {
   background: #1d4ed8;
 }
 
+button:disabled {
+  background: #98a2b3;
+  cursor: not-allowed;
+}
+
 .card {
   margin-bottom: 12px;
   border: 1px solid #d0d5dd;
@@ -130,6 +135,23 @@ button:hover {
   align-items: center;
 }
 
+.global-history-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #e4e7ec;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.global-history-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .marker-time,
 .history-time {
   font-size: 13px;
@@ -149,6 +171,7 @@ button:hover {
 .history-meta {
   color: #667085;
   font-size: 12px;
+  line-height: 1.4;
 }
 
 .marker-item button,

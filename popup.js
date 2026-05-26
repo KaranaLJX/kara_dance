@@ -8,8 +8,11 @@ const abStartStatusElement = document.getElementById("ab-start-status");
 const abEndStatusElement = document.getElementById("ab-end-status");
 const markerListElement = document.getElementById("marker-list");
 const historyListElement = document.getElementById("history-list");
+const globalHistoryListElement = document.getElementById("global-history-list");
 const refreshButton = document.getElementById("refresh-button");
 const statusElement = document.getElementById("status");
+const HISTORY_PREFIX = "dance-helper-history:";
+let currentState = null;
 
 function formatTime(seconds) {
   if (!Number.isFinite(seconds)) {
@@ -47,6 +50,91 @@ async function sendMessageToCurrentTab(message) {
   }
 
   return chrome.tabs.sendMessage(tab.id, message);
+}
+
+function normalizeGlobalHistoryEntry(item, videoKey, index) {
+  const start = Number(item && item.start);
+  const end = Number(item && item.end);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || Math.abs(end - start) < 0.1) {
+    return null;
+  }
+
+  return {
+    id: (item && item.id) || `${videoKey}-${index}`,
+    start: Number(Math.min(start, end).toFixed(1)),
+    end: Number(Math.max(start, end).toFixed(1)),
+    createdAt: Number(item && item.createdAt) || 0,
+    title: (item && item.title) || "未命名视频",
+    videoKey,
+    url: (item && item.url) || ""
+  };
+}
+
+function groupHistoryByVideoKey(history) {
+  const groupMap = new Map();
+
+  (history || []).forEach((item) => {
+    if (!groupMap.has(item.videoKey)) {
+      groupMap.set(item.videoKey, {
+        videoKey: item.videoKey,
+        title: item.title || "未命名视频",
+        url: item.url || "",
+        latestCreatedAt: item.createdAt || 0,
+        items: []
+      });
+    }
+
+    const group = groupMap.get(item.videoKey);
+    group.items.push(item);
+    if (item.createdAt > group.latestCreatedAt) {
+      group.latestCreatedAt = item.createdAt;
+    }
+    if (!group.url && item.url) {
+      group.url = item.url;
+    }
+    if ((!group.title || group.title === "未命名视频") && item.title) {
+      group.title = item.title;
+    }
+  });
+
+  return Array.from(groupMap.values())
+    .map((group) => ({
+      ...group,
+      items: group.items.sort((a, b) => b.createdAt - a.createdAt)
+    }))
+    .sort((a, b) => b.latestCreatedAt - a.latestCreatedAt);
+}
+
+async function loadAllVideoHistory() {
+  const allStorage = await chrome.storage.local.get(null);
+  const entries = [];
+
+  Object.keys(allStorage).forEach((key) => {
+    if (!key.startsWith(HISTORY_PREFIX)) {
+      return;
+    }
+
+    const videoKey = key.slice(HISTORY_PREFIX.length);
+    const history = Array.isArray(allStorage[key]) ? allStorage[key] : [];
+    history.forEach((item, index) => {
+      const normalized = normalizeGlobalHistoryEntry(item, videoKey, index);
+      if (normalized) {
+        entries.push(normalized);
+      }
+    });
+  });
+
+  return entries.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+async function removeGlobalHistoryEntry(videoKey, entryId) {
+  const storageKey = `${HISTORY_PREFIX}${videoKey}`;
+  const result = await chrome.storage.local.get(storageKey);
+  const history = Array.isArray(result[storageKey]) ? result[storageKey] : [];
+  const nextHistory = history.filter((item) => item && item.id !== entryId);
+  await chrome.storage.local.set({
+    [storageKey]: nextHistory
+  });
 }
 
 function renderMarkers(markers) {
@@ -132,7 +220,121 @@ function renderHistory(history) {
   });
 }
 
-function renderState(state, tab) {
+function renderGlobalHistory(history, currentVideoKey) {
+  globalHistoryListElement.innerHTML = "";
+
+  if (!history || !history.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = "这里会聚合展示所有视频保存过的片段。";
+    globalHistoryListElement.appendChild(empty);
+    return;
+  }
+
+  const groups = groupHistoryByVideoKey(history);
+
+  groups.forEach((group) => {
+    const section = document.createElement("div");
+    section.className = "global-history-group";
+
+    const header = document.createElement("div");
+    header.className = "global-history-group-header";
+
+    const heading = document.createElement("div");
+    heading.className = "history-main";
+
+    const title = document.createElement("span");
+    title.className = "history-time";
+    title.textContent = group.title || group.videoKey;
+
+    const meta = document.createElement("span");
+    meta.className = "history-meta";
+    meta.textContent =
+      group.videoKey === currentVideoKey
+        ? `${group.videoKey} · 当前视频 · ${group.items.length} 段`
+        : `${group.videoKey} · ${group.items.length} 段`;
+
+    heading.append(title, meta);
+
+    const openButton = document.createElement("button");
+    openButton.type = "button";
+    openButton.className = "mini secondary";
+
+    if (group.videoKey === currentVideoKey) {
+      openButton.textContent = "当前页";
+      openButton.disabled = true;
+    } else if (group.url) {
+      openButton.textContent = "打开视频";
+      openButton.dataset.action = "open-global-history";
+      openButton.dataset.url = group.url;
+    } else {
+      openButton.textContent = "无链接";
+      openButton.disabled = true;
+    }
+
+    header.append(heading, openButton);
+    section.appendChild(header);
+
+    group.items.forEach((item) => {
+      const row = document.createElement("div");
+      row.className = "history-item";
+
+      const main = document.createElement("div");
+      main.className = "history-main";
+
+      const time = document.createElement("span");
+      time.className = "history-time";
+      time.textContent = formatRange(item.start, item.end);
+
+      const itemMeta = document.createElement("span");
+      itemMeta.className = "history-meta";
+      itemMeta.textContent = item.createdAt
+        ? new Date(item.createdAt).toLocaleString("zh-CN", {
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit"
+          })
+        : "历史片段";
+
+      main.append(time, itemMeta);
+
+      const primaryButton = document.createElement("button");
+      primaryButton.type = "button";
+
+      if (group.videoKey === currentVideoKey) {
+        primaryButton.textContent = "回放";
+        primaryButton.dataset.action = "load-global-history";
+        primaryButton.dataset.entryId = item.id;
+        primaryButton.dataset.videoKey = item.videoKey;
+        primaryButton.dataset.start = String(item.start);
+        primaryButton.dataset.end = String(item.end);
+      } else if (group.url) {
+        primaryButton.textContent = "打开";
+        primaryButton.dataset.action = "open-global-history";
+        primaryButton.dataset.url = group.url;
+      } else {
+        primaryButton.textContent = "无链接";
+        primaryButton.disabled = true;
+      }
+
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.textContent = "删除";
+      removeButton.className = "danger";
+      removeButton.dataset.action = "remove-global-history";
+      removeButton.dataset.entryId = item.id;
+      removeButton.dataset.videoKey = item.videoKey;
+
+      row.append(main, primaryButton, removeButton);
+      section.appendChild(row);
+    });
+
+    globalHistoryListElement.appendChild(section);
+  });
+}
+
+function renderState(state, tab, globalHistory) {
   tabInfoElement.textContent = `当前标签页：${(tab && tab.title) || "未命名页面"}`;
   pageStatusElement.textContent = state.isBilibili ? "B站页面" : "非B站页面";
   videoStatusElement.textContent = state.hasVideo ? "已检测到视频" : "未检测到视频";
@@ -143,26 +345,42 @@ function renderState(state, tab) {
   abEndStatusElement.textContent = Number.isFinite(state.abEnd) ? formatTime(state.abEnd) : "未设置";
   renderMarkers(state.markers || []);
   renderHistory(state.history || []);
+  renderGlobalHistory(globalHistory || [], state.videoKey || "");
 }
 
 async function refreshState() {
+  const globalHistory = await loadAllVideoHistory();
+
   try {
     const tab = await getCurrentTab();
 
     if (!tab || !tab.id) {
       tabInfoElement.textContent = "未找到当前标签页。";
+      renderGlobalHistory(globalHistory, "");
       return;
     }
 
     const state = await sendMessageToCurrentTab({ type: "get-state" });
-    renderState(state, tab);
+    currentState = state;
+    renderState(state, tab, globalHistory);
     statusElement.textContent = state.hasVideo
       ? "已连接到当前视频。"
       : "当前页面没有可控制的视频。";
   } catch (error) {
+    currentState = null;
+    renderGlobalHistory(globalHistory, "");
     statusElement.textContent = "请先打开 B 站视频页，再刷新插件。";
     console.error("Failed to refresh state", error);
   }
+}
+
+async function openGlobalHistory(url) {
+  const tab = await getCurrentTab();
+  if (!tab || !tab.id || !url) {
+    throw new Error("无法打开历史视频。");
+  }
+
+  await chrome.tabs.update(tab.id, { url });
 }
 
 async function runAction(action, extra) {
@@ -197,6 +415,44 @@ document.addEventListener("click", async (event) => {
   }
 
   const index = target.dataset.index;
+  if (action === "load-global-history") {
+    await runAction("load-history-segment", {
+      entryId: target.dataset.entryId,
+      start: Number(target.dataset.start),
+      end: Number(target.dataset.end)
+    });
+    return;
+  }
+
+  if (action === "open-global-history") {
+    try {
+      await openGlobalHistory(target.dataset.url);
+      statusElement.textContent = "已打开对应视频。";
+    } catch (error) {
+      statusElement.textContent = "打开视频失败。";
+      console.error("Failed to open history video", error);
+    }
+    return;
+  }
+
+  if (action === "remove-global-history") {
+    try {
+      const entryId = target.dataset.entryId;
+      const videoKey = target.dataset.videoKey;
+      if (currentState && videoKey === currentState.videoKey) {
+        await runAction("remove-history-entry", { entryId });
+      } else {
+        await removeGlobalHistoryEntry(videoKey, entryId);
+        await refreshState();
+        statusElement.textContent = "已删除历史片段。";
+      }
+    } catch (error) {
+      statusElement.textContent = "删除历史片段失败。";
+      console.error("Failed to remove global history", error);
+    }
+    return;
+  }
+
   if (action === "remove-marker" || action === "seek-marker" || action === "seek-history" || action === "remove-history") {
     await runAction(action, { index: Number(index) });
     return;
