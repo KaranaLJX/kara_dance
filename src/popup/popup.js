@@ -152,15 +152,48 @@ function renderMarkers(markers) {
     const row = document.createElement("div");
     row.className = "marker-item";
 
+    const main = document.createElement("div");
+    main.className = "marker-main";
+
     const time = document.createElement("span");
     time.className = "marker-time";
     time.textContent = formatTime(marker);
+
+    main.appendChild(time);
+
+    if (Number.isFinite(currentState && currentState.abStart) && Math.abs(marker - currentState.abStart) < 0.05) {
+      const badge = document.createElement("span");
+      badge.className = "marker-badge";
+      badge.textContent = "A";
+      main.appendChild(badge);
+    }
+
+    if (Number.isFinite(currentState && currentState.abEnd) && Math.abs(marker - currentState.abEnd) < 0.05) {
+      const badge = document.createElement("span");
+      badge.className = "marker-badge";
+      badge.textContent = "B";
+      main.appendChild(badge);
+    }
 
     const seekButton = document.createElement("button");
     seekButton.type = "button";
     seekButton.textContent = "跳转";
     seekButton.dataset.action = "seek-marker";
     seekButton.dataset.index = String(index);
+
+    const setAButton = document.createElement("button");
+    setAButton.type = "button";
+    setAButton.textContent = "设A";
+    setAButton.className = "secondary";
+    setAButton.dataset.action = "set-marker-ab-start";
+    setAButton.dataset.index = String(index);
+
+    const setBButton = document.createElement("button");
+    setBButton.type = "button";
+    setBButton.textContent = "设B";
+    setBButton.className = "secondary";
+    setBButton.dataset.action = "set-marker-ab-end";
+    setBButton.dataset.index = String(index);
 
     const removeButton = document.createElement("button");
     removeButton.type = "button";
@@ -169,7 +202,7 @@ function renderMarkers(markers) {
     removeButton.dataset.action = "remove-marker";
     removeButton.dataset.index = String(index);
 
-    row.append(time, seekButton, removeButton);
+    row.append(main, seekButton, setAButton, setBButton, removeButton);
     markerListElement.appendChild(row);
   });
 }
@@ -453,7 +486,14 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
-  if (action === "remove-marker" || action === "seek-marker" || action === "seek-history" || action === "remove-history") {
+  if (
+    action === "remove-marker" ||
+    action === "seek-marker" ||
+    action === "seek-history" ||
+    action === "remove-history" ||
+    action === "set-marker-ab-start" ||
+    action === "set-marker-ab-end"
+  ) {
     await runAction(action, { index: Number(index) });
     return;
   }

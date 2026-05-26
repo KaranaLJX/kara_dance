@@ -355,6 +355,27 @@ function setABPoint(type) {
   return true;
 }
 
+function setABPointFromMarker(type, index) {
+  if (!Number.isInteger(index) || index < 0 || index >= state.markers.length) {
+    return false;
+  }
+
+  const marker = state.markers[index];
+  if (!Number.isFinite(marker)) {
+    return false;
+  }
+
+  if (type === "start") {
+    state.abStart = marker;
+  } else {
+    state.abEnd = marker;
+  }
+
+  state.activeHistoryId = "";
+  updatePanel();
+  return true;
+}
+
 function clearABPoints() {
   state.abStart = null;
   state.abEnd = null;
@@ -598,6 +619,9 @@ function ensureStyles() {
     #${ROOT_ID} .history-item {
       grid-template-columns: 1fr auto auto;
     }
+    #${ROOT_ID} .marker-item {
+      grid-template-columns: 1fr auto auto auto auto;
+    }
     #${ROOT_ID} .marker-item.active,
     #${ROOT_ID} .history-item.active {
       outline: 2px solid #2563eb;
@@ -611,6 +635,20 @@ function ensureStyles() {
       display: flex;
       flex-direction: column;
       gap: 2px;
+    }
+    #${ROOT_ID} .marker-main {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+    #${ROOT_ID} .marker-badge {
+      border-radius: 999px;
+      padding: 2px 6px;
+      background: #dbeafe;
+      color: #1d4ed8;
+      font-size: 10px;
+      font-weight: 700;
     }
     #${ROOT_ID} .history-time {
       font-weight: 700;
@@ -756,13 +794,44 @@ function updatePanel() {
         item.classList.add("active");
       }
 
+      const main = document.createElement("div");
+      main.className = "marker-main";
+
       const time = document.createElement("strong");
       time.textContent = formatTime(marker);
+
+      main.appendChild(time);
+
+      if (Number.isFinite(state.abStart) && Math.abs(marker - state.abStart) < 0.05) {
+        const badge = document.createElement("span");
+        badge.className = "marker-badge";
+        badge.textContent = "A";
+        main.appendChild(badge);
+      }
+
+      if (Number.isFinite(state.abEnd) && Math.abs(marker - state.abEnd) < 0.05) {
+        const badge = document.createElement("span");
+        badge.className = "marker-badge";
+        badge.textContent = "B";
+        main.appendChild(badge);
+      }
 
       const seek = document.createElement("button");
       seek.textContent = "跳转";
       seek.dataset.action = "seek-marker";
       seek.dataset.index = String(index);
+
+      const setA = document.createElement("button");
+      setA.textContent = "设A";
+      setA.className = "secondary";
+      setA.dataset.action = "set-marker-ab-start";
+      setA.dataset.index = String(index);
+
+      const setB = document.createElement("button");
+      setB.textContent = "设B";
+      setB.className = "secondary";
+      setB.dataset.action = "set-marker-ab-end";
+      setB.dataset.index = String(index);
 
       const remove = document.createElement("button");
       remove.textContent = "删除";
@@ -770,7 +839,7 @@ function updatePanel() {
       remove.dataset.action = "remove-marker";
       remove.dataset.index = String(index);
 
-      item.append(time, seek, remove);
+      item.append(main, seek, setA, setB, remove);
       markerList.appendChild(item);
     });
   }
@@ -917,11 +986,21 @@ async function performAction(type, payload) {
         return { ...getState(), error: "设置 A 点失败。" };
       }
       return { ...getState(), message: "A 点已设置。" };
+    case "set-marker-ab-start":
+      if (!setABPointFromMarker("start", payload.index)) {
+        return { ...getState(), error: "从打点设置 A 点失败。" };
+      }
+      return { ...getState(), message: "A 点已从打点设置。" };
     case "set-ab-end":
       if (!setABPoint("end")) {
         return { ...getState(), error: "设置 B 点失败。" };
       }
       return { ...getState(), message: "B 点已设置。" };
+    case "set-marker-ab-end":
+      if (!setABPointFromMarker("end", payload.index)) {
+        return { ...getState(), error: "从打点设置 B 点失败。" };
+      }
+      return { ...getState(), message: "B 点已从打点设置。" };
     case "clear-ab":
       clearABPoints();
       return { ...getState(), message: "A/B 点已清空。" };
