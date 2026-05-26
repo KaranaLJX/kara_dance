@@ -1,0 +1,13 @@
+{
+  "name": "caradance",
+  "version": "0.2.0",
+  "description": "Caradance 扒舞助手（B站）",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build.js",
+    "build-zip": "node scripts/build-zip.js"
+  },
+  "devDependencies": {
+    "archiver": "^7.0.1"
+  }
+}
