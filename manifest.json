@@ -1,10 +1,10 @@
 {
-  "name": "Hello World Extension",
-  "description": "A minimal Manifest V3 Chrome extension for local development.",
-  "version": "0.1.0",
+  "name": "Bilibili Dance Helper",
+  "description": "B站扒舞插件，支持打点、跳段、变速和片段循环。",
+  "version": "0.2.0",
   "manifest_version": 3,
   "action": {
-    "default_title": "Hello World",
+    "default_title": "B站扒舞助手",
     "default_popup": "popup.html"
   },
   "background": {
@@ -16,19 +16,61 @@
     "tabs"
   ],
   "host_permissions": [
-    "http://*/*",
-    "https://*/*"
+    "*://*.bilibili.com/*"
   ],
   "content_scripts": [
     {
       "matches": [
-        "http://*/*",
-        "https://*/*"
+        "*://*.bilibili.com/*"
       ],
       "js": [
         "content.js"
       ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "commands": {
+    "faster": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Up",
+        "mac": "Command+Shift+Up"
+      },
+      "description": "提高播放速度"
+    },
+    "slower": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Down",
+        "mac": "Command+Shift+Down"
+      },
+      "description": "降低播放速度"
+    },
+    "previous-marker": {
+      "suggested_key": {
+        "default": "Alt+Shift+Up",
+        "mac": "Option+Shift+Up"
+      },
+      "description": "跳到上一个打点"
+    },
+    "next-marker": {
+      "suggested_key": {
+        "default": "Alt+Shift+Down",
+        "mac": "Option+Shift+Down"
+      },
+      "description": "跳到下一个打点"
+    },
+    "add-marker": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+L",
+        "mac": "Command+Shift+L"
+      },
+      "description": "记录当前时间点"
+    },
+    "toggle-panel": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "显示或隐藏侧边面板"
+    }
+  }
 }

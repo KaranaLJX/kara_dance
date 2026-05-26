@@ -1,57 +1,155 @@
-const tabInfo = document.getElementById("tab-info");
+const tabInfoElement = document.getElementById("tab-info");
+const pageStatusElement = document.getElementById("page-status");
+const videoStatusElement = document.getElementById("video-status");
+const timeStatusElement = document.getElementById("time-status");
+const rateStatusElement = document.getElementById("rate-status");
+const markerCountElement = document.getElementById("marker-count");
+const markerListElement = document.getElementById("marker-list");
+const refreshButton = document.getElementById("refresh-button");
 const statusElement = document.getElementById("status");
-const helloButton = document.getElementById("hello-button");
+
+function formatTime(seconds) {
+  if (!Number.isFinite(seconds)) {
+    return "--:--";
+  }
+
+  const totalSeconds = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const secs = totalSeconds % 60;
+
+  if (hours > 0) {
+    return [hours, minutes, secs]
+      .map((value, index) => String(value).padStart(index === 0 ? 1 : 2, "0"))
+      .join(":");
+  }
+
+  return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
 
 async function getCurrentTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab;
 }
 
-async function updateCurrentTabInfo() {
+async function sendMessageToCurrentTab(message) {
+  const tab = await getCurrentTab();
+
+  if (!tab?.id) {
+    throw new Error("未找到当前标签页");
+  }
+
+  return chrome.tabs.sendMessage(tab.id, message);
+}
+
+function renderMarkers(markers) {
+  markerListElement.innerHTML = "";
+
+  if (!markers?.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = "还没有打点，先在想拆解的动作处点一下。";
+    markerListElement.appendChild(empty);
+    return;
+  }
+
+  markers.forEach((marker, index) => {
+    const row = document.createElement("div");
+    row.className = "marker-item";
+
+    const time = document.createElement("span");
+    time.className = "marker-time";
+    time.textContent = formatTime(marker);
+
+    const seekButton = document.createElement("button");
+    seekButton.type = "button";
+    seekButton.textContent = "跳转";
+    seekButton.dataset.action = "seek-marker";
+    seekButton.dataset.index = String(index);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.textContent = "删除";
+    removeButton.className = "danger";
+    removeButton.dataset.action = "remove-marker";
+    removeButton.dataset.index = String(index);
+
+    row.append(time, seekButton, removeButton);
+    markerListElement.appendChild(row);
+  });
+}
+
+function renderState(state, tab) {
+  tabInfoElement.textContent = `当前标签页：${tab?.title || "未命名页面"}`;
+  pageStatusElement.textContent = state.isBilibili ? "B站页面" : "非B站页面";
+  videoStatusElement.textContent = state.hasVideo ? "已检测到视频" : "未检测到视频";
+  timeStatusElement.textContent = `${formatTime(state.currentTime)} / ${formatTime(
+    state.duration
+  )}`;
+  rateStatusElement.textContent = `x${state.playbackRate.toFixed(1)}`;
+  markerCountElement.textContent = String(state.markers.length);
+  renderMarkers(state.markers);
+}
+
+async function refreshState() {
   try {
     const tab = await getCurrentTab();
 
     if (!tab?.id) {
-      tabInfo.textContent = "No active tab found.";
-      helloButton.disabled = true;
+      tabInfoElement.textContent = "未找到当前标签页。";
       return;
     }
 
-    const title = tab.title || "Untitled page";
-    tabInfo.textContent = `Current tab: ${title}`;
+    const state = await sendMessageToCurrentTab({ type: "get-state" });
+    renderState(state, tab);
+    statusElement.textContent = state.hasVideo
+      ? "已连接到当前视频。"
+      : "当前页面没有可控制的视频。";
   } catch (error) {
-    tabInfo.textContent = "Failed to read tab info.";
-    statusElement.textContent =
-      error instanceof Error ? error.message : String(error);
+    statusElement.textContent = "请先打开 B 站视频页，再刷新插件。";
+    console.error("Failed to refresh state", error);
   }
 }
 
-helloButton.addEventListener("click", async () => {
-  statusElement.textContent = "Sending message...";
-
+async function runAction(action, extra = {}) {
   try {
-    const tab = await getCurrentTab();
+    const response = await sendMessageToCurrentTab({ type: action, ...extra });
 
-    if (!tab?.id) {
-      statusElement.textContent = "No active tab to message.";
+    if (response?.error) {
+      statusElement.textContent = response.error;
       return;
     }
 
-    const response = await chrome.tabs.sendMessage(tab.id, {
-      type: "hello-from-popup"
-    });
-
-    if (!response?.ok) {
-      statusElement.textContent = "Page did not respond.";
-      return;
-    }
-
-    statusElement.textContent = `Injected on: ${response.title}`;
+    await refreshState();
+    statusElement.textContent = response?.message || "操作已执行。";
   } catch (error) {
-    statusElement.textContent =
-      "Open a normal http/https page first, then try again.";
-    console.error("Failed to send hello message", error);
+    statusElement.textContent = "操作失败，请确认当前页已注入插件。";
+    console.error(`Action failed: ${action}`, error);
   }
+}
+
+document.addEventListener("click", async (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  const { action, index } = target.dataset;
+  if (!action) {
+    return;
+  }
+
+  if (action === "remove-marker" || action === "seek-marker") {
+    await runAction(action, { index: Number(index) });
+    return;
+  }
+
+  await runAction(action);
 });
 
-updateCurrentTabInfo();
+refreshButton.addEventListener("click", refreshState);
+
+chrome.runtime
+  .sendMessage({ type: "popup-ping" })
+  .catch(() => undefined)
+  .finally(refreshState);

@@ -1,9 +1,10 @@
 .popup {
-  width: 320px;
+  width: 360px;
   margin: 0;
   padding: 16px;
   font-family: Arial, sans-serif;
   color: #1f2328;
+  background: #f8fafc;
 }
 
 h1 {
@@ -31,7 +32,96 @@ button:hover {
   background: #1d4ed8;
 }
 
+.card {
+  margin-bottom: 12px;
+  border: 1px solid #d0d5dd;
+  border-radius: 12px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.row:last-child {
+  margin-bottom: 0;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.grid button {
+  padding: 10px 8px;
+  font-size: 13px;
+}
+
+.secondary {
+  background: #111827;
+}
+
+.secondary:hover {
+  background: #0f172a;
+}
+
+.section-title {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.marker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.marker-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.marker-time {
+  min-width: 54px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.marker-item button {
+  width: auto;
+  flex: 1;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.marker-item .danger {
+  flex: 0 0 auto;
+  background: #dc2626;
+}
+
+.marker-item .danger:hover {
+  background: #b91c1c;
+}
+
+.empty {
+  margin: 0;
+  color: #667085;
+  font-size: 13px;
+}
+
 #status {
   margin-top: 12px;
   color: #475467;
+  min-height: 20px;
 }

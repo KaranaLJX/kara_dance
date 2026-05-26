@@ -1,13 +1,49 @@
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.set({
-    helloClickCount: 0
+    danceHelperSettings: {
+      panelVisible: true
+    }
   });
-  console.log("Hello World extension installed");
+  console.log("Bilibili Dance Helper installed");
 });
 
+function sendToActiveTab(message) {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const [tab] = tabs;
+
+    if (!tab?.id) {
+      return;
+    }
+
+    chrome.tabs.sendMessage(tab.id, message, () => {
+      if (chrome.runtime.lastError) {
+        console.debug("Message skipped:", chrome.runtime.lastError.message);
+      }
+    });
+  });
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type === "hello-from-popup") {
-    console.log("Popup says hello", { tabId: sender.tab?.id ?? null });
+  if (message?.type === "popup-ping") {
+    console.log("Popup connected", { tabId: sender.tab?.id ?? null });
     sendResponse({ ok: true });
   }
+});
+
+chrome.commands.onCommand.addListener((command) => {
+  const commandToAction = {
+    faster: "faster",
+    slower: "slower",
+    "previous-marker": "jump-previous",
+    "next-marker": "jump-next",
+    "add-marker": "add-marker",
+    "toggle-panel": "toggle-panel"
+  };
+
+  const action = commandToAction[command];
+  if (!action) {
+    return;
+  }
+
+  sendToActiveTab({ type: action });
 });

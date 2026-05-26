@@ -1,17 +1,58 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Hello World</title>
+    <title>B站扒舞助手</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
     <main class="popup">
-      <h1>Hello World</h1>
-      <p id="tab-info">Reading current tab...</p>
-      <button id="hello-button" type="button">Say hello to this page</button>
-      <p id="status">Ready.</p>
+      <h1>B站扒舞助手</h1>
+      <p id="tab-info">正在读取当前标签页...</p>
+      <section class="card">
+        <div class="row">
+          <span>页面</span>
+          <strong id="page-status">检测中</strong>
+        </div>
+        <div class="row">
+          <span>视频</span>
+          <strong id="video-status">检测中</strong>
+        </div>
+        <div class="row">
+          <span>时间</span>
+          <strong id="time-status">--:--</strong>
+        </div>
+        <div class="row">
+          <span>倍速</span>
+          <strong id="rate-status">x1.0</strong>
+        </div>
+        <div class="row">
+          <span>打点数</span>
+          <strong id="marker-count">0</strong>
+        </div>
+      </section>
+
+      <section class="grid">
+        <button type="button" data-action="toggle-play">播放 / 暂停</button>
+        <button type="button" data-action="add-marker">记录当前点</button>
+        <button type="button" data-action="jump-previous">上一个点</button>
+        <button type="button" data-action="jump-next">下一个点</button>
+        <button type="button" data-action="slower">减速</button>
+        <button type="button" data-action="faster">加速</button>
+        <button type="button" data-action="toggle-loop">片段循环</button>
+        <button type="button" data-action="toggle-panel">显示/隐藏面板</button>
+      </section>
+
+      <section class="card">
+        <div class="section-title">当前视频打点</div>
+        <div id="marker-list" class="marker-list">
+          <p class="empty">还没有打点，先在想拆解的动作处点一下。</p>
+        </div>
+      </section>
+
+      <button id="refresh-button" type="button" class="secondary">刷新状态</button>
+      <p id="status">就绪</p>
     </main>
     <script src="popup.js"></script>
   </body>
