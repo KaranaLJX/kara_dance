@@ -14,6 +14,14 @@ const statusElement = document.getElementById("status");
 const HISTORY_PREFIX = "dance-helper-history:";
 let currentState = null;
 
+function truncateText(text, maxLength) {
+  if (!text || text.length <= maxLength) {
+    return text || "";
+  }
+
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
 function formatTime(seconds) {
   if (!Number.isFinite(seconds)) {
     return "--:--";
@@ -135,6 +143,11 @@ async function removeGlobalHistoryEntry(videoKey, entryId) {
   await chrome.storage.local.set({
     [storageKey]: nextHistory
   });
+}
+
+async function removeGlobalHistoryVideo(videoKey) {
+  const storageKey = `${HISTORY_PREFIX}${videoKey}`;
+  await chrome.storage.local.remove(storageKey);
 }
 
 function renderMarkers(markers) {
@@ -277,15 +290,17 @@ function renderGlobalHistory(history, currentVideoKey) {
     heading.className = "history-main";
 
     const title = document.createElement("span");
-    title.className = "history-time";
+    title.className = "history-time history-title";
     title.textContent = group.title || group.videoKey;
+    title.title = group.title || group.videoKey;
 
     const meta = document.createElement("span");
-    meta.className = "history-meta";
+    meta.className = "history-meta history-key";
     meta.textContent =
       group.videoKey === currentVideoKey
         ? `${group.videoKey} · 当前视频 · ${group.items.length} 段`
         : `${group.videoKey} · ${group.items.length} 段`;
+    meta.title = meta.textContent;
 
     heading.append(title, meta);
 
@@ -305,7 +320,18 @@ function renderGlobalHistory(history, currentVideoKey) {
       openButton.disabled = true;
     }
 
-    header.append(heading, openButton);
+    const headerActions = document.createElement("div");
+    headerActions.className = "mini-actions";
+
+    const removeGroupButton = document.createElement("button");
+    removeGroupButton.type = "button";
+    removeGroupButton.textContent = "删整组";
+    removeGroupButton.className = "mini danger";
+    removeGroupButton.dataset.action = "remove-global-history-video";
+    removeGroupButton.dataset.videoKey = group.videoKey;
+
+    headerActions.append(openButton, removeGroupButton);
+    header.append(heading, headerActions);
     section.appendChild(header);
 
     group.items.forEach((item) => {
@@ -368,7 +394,9 @@ function renderGlobalHistory(history, currentVideoKey) {
 }
 
 function renderState(state, tab, globalHistory) {
-  tabInfoElement.textContent = `当前标签页：${(tab && tab.title) || "未命名页面"}`;
+  const tabTitle = (tab && tab.title) || "未命名页面";
+  tabInfoElement.textContent = `当前标签页：${truncateText(tabTitle, 26)}`;
+  tabInfoElement.title = tabTitle;
   pageStatusElement.textContent = state.isSupportedSite
     ? `${state.siteName || "当前站点"}页面`
     : "非支持站点";
@@ -484,6 +512,28 @@ document.addEventListener("click", async (event) => {
     } catch (error) {
       statusElement.textContent = "删除历史片段失败。";
       console.error("Failed to remove global history", error);
+    }
+    return;
+  }
+
+  if (action === "remove-global-history-video") {
+    try {
+      const videoKey = target.dataset.videoKey;
+      if (!videoKey) {
+        statusElement.textContent = "未找到对应视频记录。";
+        return;
+      }
+
+      if (currentState && videoKey === currentState.videoKey) {
+        await runAction("clear-history");
+      } else {
+        await removeGlobalHistoryVideo(videoKey);
+        await refreshState();
+        statusElement.textContent = "已删除该视频的全部历史片段。";
+      }
+    } catch (error) {
+      statusElement.textContent = "删除整组视频历史失败。";
+      console.error("Failed to remove history video group", error);
     }
     return;
   }

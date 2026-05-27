@@ -4,11 +4,6 @@ const STORAGE_PREFIX = "dance-helper-markers:";
 const HISTORY_PREFIX = "dance-helper-history:";
 const SETTINGS_KEY = "danceHelperSettings";
 const SPEED_STEPS = [0.3, 0.5, 0.7, 0.8, 0.9, 1, 1.25, 1.5, 2];
-const DEBUG_SERVER_URL = "http://127.0.0.1:7777/event";
-const DEBUG_SESSION_ID = "douyin-main-video";
-const DEBUG_RUN_ID = "post-fix";
-let lastVideoDebugSignature = "";
-let lastVideoDebugAt = 0;
 const SUPPORTED_SITES = [
   {
     key: "bilibili",
@@ -100,42 +95,6 @@ function isSupportedSite() {
   return Boolean(getSiteAdapter());
 }
 
-function getVideoDebugSnapshot(video, index) {
-  if (!video) {
-    return null;
-  }
-
-  const rect = video.getBoundingClientRect();
-  const style = window.getComputedStyle(video);
-  const visibleWidth = Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0));
-  const visibleHeight = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
-  const area = Math.max(1, rect.width * rect.height);
-  const visibleRatio = Number(((visibleWidth * visibleHeight) / area).toFixed(3));
-
-  return {
-    index,
-    currentTime: Number(video.currentTime.toFixed(3)),
-    duration: Number.isFinite(video.duration) ? Number(video.duration.toFixed(3)) : null,
-    paused: video.paused,
-    ended: video.ended,
-    muted: video.muted,
-    volume: Number(video.volume.toFixed(2)),
-    playbackRate: Number(video.playbackRate.toFixed(2)),
-    readyState: video.readyState,
-    rect: {
-      x: Number(rect.x.toFixed(1)),
-      y: Number(rect.y.toFixed(1)),
-      width: Number(rect.width.toFixed(1)),
-      height: Number(rect.height.toFixed(1))
-    },
-    visibleRatio,
-    display: style.display,
-    visibility: style.visibility,
-    opacity: style.opacity,
-    connected: video.isConnected
-  };
-}
-
 function isVideoVisible(video) {
   if (!video || !video.isConnected) {
     return false;
@@ -206,24 +165,6 @@ function scoreVideoElement(video) {
   return score;
 }
 
-function reportDebugEvent(hypothesisId, location, msg, data) {
-  fetch(DEBUG_SERVER_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      sessionId: DEBUG_SESSION_ID,
-      runId: DEBUG_RUN_ID,
-      hypothesisId,
-      location,
-      msg,
-      data,
-      ts: Date.now()
-    })
-  }).catch(() => {});
-}
-
 function getVideoElement() {
   const videos = Array.from(document.querySelectorAll("video"));
   const selected = videos.length
@@ -234,46 +175,6 @@ function getVideoElement() {
         return scoreVideoElement(current) > scoreVideoElement(best) ? current : best;
       }, null)
     : null;
-
-  // #region debug-point A:douyin-video-candidates
-  if (location.host.includes("douyin.com") || location.host.includes("iesdouyin.com")) {
-    const snapshots = videos.map((video, index) => getVideoDebugSnapshot(video, index));
-    const selectedIndex = selected ? videos.indexOf(selected) : -1;
-    const signature = JSON.stringify({
-      path: location.pathname,
-      selectedIndex,
-      candidates: snapshots.map((item) =>
-        item
-          ? {
-              index: item.index,
-              currentTime: item.currentTime,
-              paused: item.paused,
-              readyState: item.readyState,
-              width: item.rect.width,
-              height: item.rect.height,
-              visibleRatio: item.visibleRatio
-            }
-          : null
-      )
-    });
-    const now = Date.now();
-    if (signature !== lastVideoDebugSignature || now - lastVideoDebugAt > 2000) {
-      lastVideoDebugSignature = signature;
-      lastVideoDebugAt = now;
-      reportDebugEvent(
-        "A",
-        "content-script:getVideoElement",
-        "[DEBUG] douyin video candidates evaluated",
-        {
-          href: location.href,
-          selectedIndex,
-          candidateCount: snapshots.length,
-          snapshots
-        }
-      );
-    }
-  }
-  // #endregion
 
   return selected;
 }
@@ -1234,20 +1135,6 @@ function updatePanel() {
 
 function getState() {
   const video = getVideoElement();
-  // #region debug-point B:douyin-selected-video-state
-  if ((location.host.includes("douyin.com") || location.host.includes("iesdouyin.com")) && video) {
-    const snapshot = getVideoDebugSnapshot(video, -1);
-    const now = Date.now();
-    if (snapshot && now - lastVideoDebugAt > 800) {
-      reportDebugEvent("B", "content-script:getState", "[DEBUG] douyin selected video state", {
-        href: location.href,
-        title: getVideoTitle(),
-        selected: snapshot
-      });
-      lastVideoDebugAt = now;
-    }
-  }
-  // #endregion
   return {
     ok: true,
     isSupportedSite: isSupportedSite(),

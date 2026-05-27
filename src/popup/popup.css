@@ -17,6 +17,12 @@ p {
   line-height: 1.4;
 }
 
+#tab-info {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 button {
   width: 100%;
   border: 0;
@@ -148,15 +154,33 @@ button:disabled {
 
 .global-history-group-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
+}
+
+.global-history-group-header .history-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.global-history-group-header .mini {
+  flex-shrink: 0;
 }
 
 .marker-time,
 .history-time {
   font-size: 13px;
   font-weight: 700;
+}
+
+.history-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.4;
+  word-break: break-word;
 }
 
 .marker-main {
@@ -195,6 +219,14 @@ button:disabled {
   -webkit-line-clamp: 2;
   overflow: hidden;
   word-break: break-word;
+}
+
+.history-key {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  word-break: normal;
 }
 
 .marker-item button,
