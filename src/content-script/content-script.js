@@ -679,7 +679,7 @@ function ensureStyles() {
       font-size: 12px;
     }
     #${ROOT_ID} .history-item {
-      grid-template-columns: 1fr auto auto;
+      grid-template-columns: minmax(0, 1fr) auto auto;
     }
     #${ROOT_ID} .marker-item {
       grid-template-columns: 1fr auto auto auto auto;
@@ -697,6 +697,7 @@ function ensureStyles() {
       display: flex;
       flex-direction: column;
       gap: 2px;
+      min-width: 0;
     }
     #${ROOT_ID} .marker-main {
       display: flex;
@@ -718,6 +719,13 @@ function ensureStyles() {
     #${ROOT_ID} .history-meta {
       color: #667085;
       font-size: 11px;
+      line-height: 1.35;
+      line-clamp: 2;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+      word-break: break-word;
     }
     #${ROOT_ID} .empty {
       padding: 12px 8px;
@@ -944,6 +952,7 @@ function updatePanel() {
     const meta = document.createElement("div");
     meta.className = "history-meta";
     meta.textContent = item.title;
+    meta.title = item.title;
 
     main.append(time, meta);
 
