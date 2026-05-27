@@ -3,7 +3,7 @@ const STYLE_ID = "dance-helper-style";
 const STORAGE_PREFIX = "dance-helper-markers:";
 const HISTORY_PREFIX = "dance-helper-history:";
 const SETTINGS_KEY = "danceHelperSettings";
-const SPEED_STEPS = [0.3, 0.5, 0.7, 0.9, 1, 1.25, 1.5, 2];
+const SPEED_STEPS = [0.3, 0.5, 0.7, 0.8, 0.9, 1, 1.25, 1.5, 2];
 
 const state = {
   url: location.href,
