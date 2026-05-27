@@ -4,6 +4,73 @@ const STORAGE_PREFIX = "dance-helper-markers:";
 const HISTORY_PREFIX = "dance-helper-history:";
 const SETTINGS_KEY = "danceHelperSettings";
 const SPEED_STEPS = [0.3, 0.5, 0.7, 0.8, 0.9, 1, 1.25, 1.5, 2];
+const DEBUG_SERVER_URL = "http://127.0.0.1:7777/event";
+const DEBUG_SESSION_ID = "douyin-main-video";
+const DEBUG_RUN_ID = "post-fix";
+let lastVideoDebugSignature = "";
+let lastVideoDebugAt = 0;
+const SUPPORTED_SITES = [
+  {
+    key: "bilibili",
+    name: "B站",
+    matches: ["bilibili.com"],
+    getTitle() {
+      const title = document.querySelector("h1");
+      const text = (title && title.textContent && title.textContent.trim()) || "";
+      return text || document.title || "Bilibili 视频";
+    },
+    getVideoKey() {
+      const path = location.pathname;
+      const matchedId = path.match(/(BV[\w]+|av\d+|ep\d+|ss\d+)/i);
+      return matchedId ? matchedId[1].toUpperCase() : `${location.host}${path}`;
+    }
+  },
+  {
+    key: "douyin",
+    name: "抖音",
+    matches: ["douyin.com", "iesdouyin.com"],
+    getTitle() {
+      const selectors = [
+        'meta[property="og:title"]',
+        'meta[name="description"]',
+        'h1[data-e2e]',
+        "h1"
+      ];
+
+      for (const selector of selectors) {
+        const node = document.querySelector(selector);
+        const content =
+          (node && node.getAttribute && node.getAttribute("content")) ||
+          (node && node.textContent && node.textContent.trim()) ||
+          "";
+        if (content) {
+          return content;
+        }
+      }
+
+      return document.title || "抖音视频";
+    },
+    getVideoKey() {
+      const pathname = location.pathname;
+      const pathMatch = pathname.match(/\/(video|note)\/(\d+)/i);
+      if (pathMatch) {
+        return `${pathMatch[1].toLowerCase()}_${pathMatch[2]}`;
+      }
+
+      const searchParams = new URLSearchParams(location.search);
+      const queryId =
+        searchParams.get("modal_id") ||
+        searchParams.get("item_id") ||
+        searchParams.get("group_id") ||
+        searchParams.get("vid");
+      if (queryId) {
+        return `video_${queryId}`;
+      }
+
+      return `${location.host}${pathname}`;
+    }
+  }
+];
 
 const state = {
   url: location.href,
@@ -13,6 +80,8 @@ const state = {
   selectedSegmentIndex: -1,
   panelVisible: true,
   panelCollapsed: true,
+  siteKey: "unknown",
+  siteName: "网页",
   videoKey: "",
   mounted: false,
   abStart: null,
@@ -20,24 +89,209 @@ const state = {
   activeHistoryId: ""
 };
 
-function isBilibiliPage() {
-  return location.host.includes("bilibili.com");
+function getSiteAdapter() {
+  const host = location.host;
+  return (
+    SUPPORTED_SITES.find((site) => site.matches.some((pattern) => host.includes(pattern))) || null
+  );
+}
+
+function isSupportedSite() {
+  return Boolean(getSiteAdapter());
+}
+
+function getVideoDebugSnapshot(video, index) {
+  if (!video) {
+    return null;
+  }
+
+  const rect = video.getBoundingClientRect();
+  const style = window.getComputedStyle(video);
+  const visibleWidth = Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0));
+  const visibleHeight = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
+  const area = Math.max(1, rect.width * rect.height);
+  const visibleRatio = Number(((visibleWidth * visibleHeight) / area).toFixed(3));
+
+  return {
+    index,
+    currentTime: Number(video.currentTime.toFixed(3)),
+    duration: Number.isFinite(video.duration) ? Number(video.duration.toFixed(3)) : null,
+    paused: video.paused,
+    ended: video.ended,
+    muted: video.muted,
+    volume: Number(video.volume.toFixed(2)),
+    playbackRate: Number(video.playbackRate.toFixed(2)),
+    readyState: video.readyState,
+    rect: {
+      x: Number(rect.x.toFixed(1)),
+      y: Number(rect.y.toFixed(1)),
+      width: Number(rect.width.toFixed(1)),
+      height: Number(rect.height.toFixed(1))
+    },
+    visibleRatio,
+    display: style.display,
+    visibility: style.visibility,
+    opacity: style.opacity,
+    connected: video.isConnected
+  };
+}
+
+function isVideoVisible(video) {
+  if (!video || !video.isConnected) {
+    return false;
+  }
+
+  const rect = video.getBoundingClientRect();
+  if (rect.width < 2 || rect.height < 2) {
+    return false;
+  }
+
+  const style = window.getComputedStyle(video);
+  if (
+    style.display === "none" ||
+    style.visibility === "hidden" ||
+    Number.parseFloat(style.opacity || "1") === 0
+  ) {
+    return false;
+  }
+
+  return rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth;
+}
+
+function getVideoVisibleRatio(video) {
+  const rect = video.getBoundingClientRect();
+  const visibleWidth = Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0));
+  const visibleHeight = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
+  const area = Math.max(1, rect.width * rect.height);
+  return (visibleWidth * visibleHeight) / area;
+}
+
+function scoreVideoElement(video) {
+  if (!video || !video.isConnected) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const rect = video.getBoundingClientRect();
+  const area = rect.width * rect.height;
+  const visible = isVideoVisible(video);
+  const visibleRatio = visible ? getVideoVisibleRatio(video) : 0;
+
+  let score = 0;
+  if (visible) {
+    score += 100;
+  } else {
+    score -= 100;
+  }
+
+  score += Math.min(visibleRatio * 80, 80);
+  score += Math.min(area / 20000, 20);
+
+  if (!video.paused) {
+    score += 40;
+  }
+  if (video.currentTime > 0) {
+    score += 20;
+  }
+  if (video.readyState >= 2) {
+    score += 10;
+  }
+  if (Number.isFinite(video.duration)) {
+    score += 10;
+  }
+
+  if (rect.top < 0 || rect.bottom > window.innerHeight) {
+    score -= 10;
+  }
+
+  return score;
+}
+
+function reportDebugEvent(hypothesisId, location, msg, data) {
+  fetch(DEBUG_SERVER_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      sessionId: DEBUG_SESSION_ID,
+      runId: DEBUG_RUN_ID,
+      hypothesisId,
+      location,
+      msg,
+      data,
+      ts: Date.now()
+    })
+  }).catch(() => {});
 }
 
 function getVideoElement() {
   const videos = Array.from(document.querySelectorAll("video"));
-  return videos.find((video) => Number.isFinite(video.duration) || video.readyState > 0) || videos[0] || null;
+  const selected = videos.length
+    ? videos.reduce((best, current) => {
+        if (!best) {
+          return current;
+        }
+        return scoreVideoElement(current) > scoreVideoElement(best) ? current : best;
+      }, null)
+    : null;
+
+  // #region debug-point A:douyin-video-candidates
+  if (location.host.includes("douyin.com") || location.host.includes("iesdouyin.com")) {
+    const snapshots = videos.map((video, index) => getVideoDebugSnapshot(video, index));
+    const selectedIndex = selected ? videos.indexOf(selected) : -1;
+    const signature = JSON.stringify({
+      path: location.pathname,
+      selectedIndex,
+      candidates: snapshots.map((item) =>
+        item
+          ? {
+              index: item.index,
+              currentTime: item.currentTime,
+              paused: item.paused,
+              readyState: item.readyState,
+              width: item.rect.width,
+              height: item.rect.height,
+              visibleRatio: item.visibleRatio
+            }
+          : null
+      )
+    });
+    const now = Date.now();
+    if (signature !== lastVideoDebugSignature || now - lastVideoDebugAt > 2000) {
+      lastVideoDebugSignature = signature;
+      lastVideoDebugAt = now;
+      reportDebugEvent(
+        "A",
+        "content-script:getVideoElement",
+        "[DEBUG] douyin video candidates evaluated",
+        {
+          href: location.href,
+          selectedIndex,
+          candidateCount: snapshots.length,
+          snapshots
+        }
+      );
+    }
+  }
+  // #endregion
+
+  return selected;
 }
 
 function getVideoTitle() {
-  const title = document.querySelector("h1");
-  return (title && title.textContent && title.textContent.trim()) || document.title || "Bilibili 视频";
+  const adapter = getSiteAdapter();
+  if (!adapter) {
+    return document.title || "网页视频";
+  }
+  return adapter.getTitle();
 }
 
 function getVideoKey() {
-  const path = location.pathname;
-  const matchedId = path.match(/(BV[\w]+|av\d+|ep\d+|ss\d+)/i);
-  return matchedId ? matchedId[1].toUpperCase() : `${location.host}${path}`;
+  const adapter = getSiteAdapter();
+  if (!adapter) {
+    return `${location.host}${location.pathname}`;
+  }
+  return `${adapter.key}:${adapter.getVideoKey()}`;
 }
 
 function formatTime(seconds) {
@@ -149,6 +403,9 @@ async function loadSettings() {
 }
 
 async function loadMarkers() {
+  const adapter = getSiteAdapter();
+  state.siteKey = adapter ? adapter.key : "unknown";
+  state.siteName = adapter ? adapter.name : "网页";
   state.videoKey = getVideoKey();
   const storageKey = `${STORAGE_PREFIX}${state.videoKey}`;
   const result = await chrome.storage.local.get(storageKey);
@@ -157,6 +414,9 @@ async function loadMarkers() {
 }
 
 async function loadHistory() {
+  const adapter = getSiteAdapter();
+  state.siteKey = adapter ? adapter.key : "unknown";
+  state.siteName = adapter ? adapter.name : "网页";
   state.videoKey = getVideoKey();
   const storageKey = `${HISTORY_PREFIX}${state.videoKey}`;
   const result = await chrome.storage.local.get(storageKey);
@@ -974,9 +1234,25 @@ function updatePanel() {
 
 function getState() {
   const video = getVideoElement();
+  // #region debug-point B:douyin-selected-video-state
+  if ((location.host.includes("douyin.com") || location.host.includes("iesdouyin.com")) && video) {
+    const snapshot = getVideoDebugSnapshot(video, -1);
+    const now = Date.now();
+    if (snapshot && now - lastVideoDebugAt > 800) {
+      reportDebugEvent("B", "content-script:getState", "[DEBUG] douyin selected video state", {
+        href: location.href,
+        title: getVideoTitle(),
+        selected: snapshot
+      });
+      lastVideoDebugAt = now;
+    }
+  }
+  // #endregion
   return {
     ok: true,
-    isBilibili: isBilibiliPage(),
+    isSupportedSite: isSupportedSite(),
+    siteKey: state.siteKey,
+    siteName: state.siteName,
     hasVideo: Boolean(video),
     title: getVideoTitle(),
     url: location.href,
@@ -1169,7 +1445,10 @@ function bindVideoEvents() {
 }
 
 async function initializeForCurrentPage() {
+  const adapter = getSiteAdapter();
   state.url = location.href;
+  state.siteKey = adapter ? adapter.key : "unknown";
+  state.siteName = adapter ? adapter.name : "网页";
   state.videoKey = getVideoKey();
   state.loopEnabled = false;
   state.selectedSegmentIndex = -1;

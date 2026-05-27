@@ -1,6 +1,6 @@
 {
   "name": "Caradance 扒舞助手",
-  "description": "B站扒舞插件，支持打点、A/B 点、跳段、变速、循环和历史片段。",
+  "description": "B站/抖音网页扒舞插件，支持打点、A/B 点、跳段、变速、循环和历史片段。",
   "version": "0.2.0",
   "manifest_version": 3,
   "action": {
@@ -16,12 +16,16 @@
     "tabs"
   ],
   "host_permissions": [
-    "*://*.bilibili.com/*"
+    "*://*.bilibili.com/*",
+    "*://*.douyin.com/*",
+    "*://*.iesdouyin.com/*"
   ],
   "content_scripts": [
     {
       "matches": [
-        "*://*.bilibili.com/*"
+        "*://*.bilibili.com/*",
+        "*://*.douyin.com/*",
+        "*://*.iesdouyin.com/*"
       ],
       "js": [
         "content-script/content-script.js"

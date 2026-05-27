@@ -369,7 +369,9 @@ function renderGlobalHistory(history, currentVideoKey) {
 
 function renderState(state, tab, globalHistory) {
   tabInfoElement.textContent = `当前标签页：${(tab && tab.title) || "未命名页面"}`;
-  pageStatusElement.textContent = state.isBilibili ? "B站页面" : "非B站页面";
+  pageStatusElement.textContent = state.isSupportedSite
+    ? `${state.siteName || "当前站点"}页面`
+    : "非支持站点";
   videoStatusElement.textContent = state.hasVideo ? "已检测到视频" : "未检测到视频";
   timeStatusElement.textContent = `${formatTime(state.currentTime)} / ${formatTime(state.duration)}`;
   rateStatusElement.textContent = `x${Number(state.playbackRate || 1).toFixed(1)}`;
@@ -402,7 +404,7 @@ async function refreshState() {
   } catch (error) {
     currentState = null;
     renderGlobalHistory(globalHistory, "");
-    statusElement.textContent = "请先打开 B 站视频页，再刷新插件。";
+    statusElement.textContent = "请先打开 B站或抖音视频页，再刷新插件。";
     console.error("Failed to refresh state", error);
   }
 }
