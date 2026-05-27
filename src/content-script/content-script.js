@@ -12,6 +12,7 @@ const state = {
   loopEnabled: false,
   selectedSegmentIndex: -1,
   panelVisible: true,
+  panelCollapsed: true,
   videoKey: "",
   mounted: false,
   abStart: null,
@@ -133,7 +134,8 @@ async function saveHistory() {
 async function saveSettings() {
   await chrome.storage.local.set({
     [SETTINGS_KEY]: {
-      panelVisible: state.panelVisible
+      panelVisible: state.panelVisible,
+      panelCollapsed: state.panelCollapsed
     }
   });
 }
@@ -142,6 +144,8 @@ async function loadSettings() {
   const result = await chrome.storage.local.get(SETTINGS_KEY);
   const settings = result ? result[SETTINGS_KEY] : null;
   state.panelVisible = settings && typeof settings.panelVisible === "boolean" ? settings.panelVisible : true;
+  state.panelCollapsed =
+    settings && typeof settings.panelCollapsed === "boolean" ? settings.panelCollapsed : true;
 }
 
 async function loadMarkers() {
@@ -506,14 +510,52 @@ function ensureStyles() {
       width: 336px;
       font-family: Arial, sans-serif;
       color: #101828;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
     }
     #${ROOT_ID}.hidden {
       display: none;
     }
+    #${ROOT_ID}.collapsed {
+      width: auto;
+    }
+    #${ROOT_ID} .launcher {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 46px;
+      height: 46px;
+      border-radius: 999px;
+      border: 0;
+      box-shadow: 0 12px 24px rgba(15, 23, 42, 0.22);
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      padding: 0 12px;
+      white-space: nowrap;
+    }
+    #${ROOT_ID}.collapsed .launcher {
+      min-width: 52px;
+      padding: 0 14px;
+    }
+    #${ROOT_ID} .panel-shell {
+      width: 336px;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+    }
+    #${ROOT_ID}.collapsed .panel-shell {
+      opacity: 0;
+      pointer-events: none;
+      transform: translateX(12px) scale(0.98);
+      width: 0;
+      overflow: hidden;
+    }
     #${ROOT_ID} .panel {
       border: 1px solid rgba(15, 23, 42, 0.12);
       border-radius: 16px;
-      background: rgba(255, 255, 255, 0.96);
+      background: rgba(255, 255, 255, 0.92);
       box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
       backdrop-filter: blur(12px);
       overflow: hidden;
@@ -522,6 +564,14 @@ function ensureStyles() {
       padding: 14px 16px 8px;
       background: linear-gradient(135deg, #2563eb, #1d4ed8);
       color: #fff;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    #${ROOT_ID} .header-main {
+      min-width: 0;
+      flex: 1;
     }
     #${ROOT_ID} .title {
       margin: 0;
@@ -532,6 +582,18 @@ function ensureStyles() {
       margin-top: 4px;
       font-size: 12px;
       opacity: 0.9;
+    }
+    #${ROOT_ID} .header-toggle {
+      width: auto;
+      min-width: 32px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.16);
+      font-size: 16px;
+      line-height: 1;
+    }
+    #${ROOT_ID} .header-toggle:hover {
+      background: rgba(255, 255, 255, 0.24);
     }
     #${ROOT_ID} .body {
       padding: 12px 16px 16px;
@@ -681,51 +743,57 @@ function ensureRoot() {
   root = document.createElement("div");
   root.id = ROOT_ID;
   root.innerHTML = `
-    <div class="panel">
-      <div class="header">
-        <div class="title">Caradance 扒舞助手</div>
-        <div class="subtitle" data-role="subtitle">等待视频加载...</div>
-      </div>
-      <div class="body">
-        <div class="stats">
-          <div class="stat">当前时间<strong data-role="current-time">--:--</strong></div>
-          <div class="stat">播放速度<strong data-role="rate">x1.0</strong></div>
-          <div class="stat">打点数<strong data-role="marker-count">0</strong></div>
-          <div class="stat">循环范围<strong data-role="loop">关闭</strong></div>
+    <button class="launcher" data-action="toggle-panel" type="button">扒舞</button>
+    <div class="panel-shell">
+      <div class="panel">
+        <div class="header">
+          <div class="header-main">
+            <div class="title">Caradance 扒舞助手</div>
+            <div class="subtitle" data-role="subtitle">等待视频加载...</div>
+          </div>
+          <button class="header-toggle" data-action="toggle-panel" type="button" title="收起面板">-</button>
         </div>
-        <div class="buttons">
-          <button data-action="toggle-play">播放/暂停</button>
-          <button data-action="add-marker">记录打点</button>
-          <button data-action="toggle-loop">开始循环</button>
-          <button data-action="jump-previous">上一个点</button>
-          <button data-action="jump-next">下一个点</button>
-          <button data-action="toggle-panel">隐藏面板</button>
-          <button data-action="slower">减速</button>
-          <button data-action="faster">加速</button>
-          <button class="danger" data-action="clear-markers">清空打点</button>
-        </div>
-        <div class="section">
-          <div class="section-title">A / B 点</div>
-          <div class="ab-row">
-            <div class="ab-item">A 点：<strong data-role="ab-start">未设置</strong></div>
-            <div class="ab-item">B 点：<strong data-role="ab-end">未设置</strong></div>
+        <div class="body">
+          <div class="stats">
+            <div class="stat">当前时间<strong data-role="current-time">--:--</strong></div>
+            <div class="stat">播放速度<strong data-role="rate">x1.0</strong></div>
+            <div class="stat">打点数<strong data-role="marker-count">0</strong></div>
+            <div class="stat">循环范围<strong data-role="loop">关闭</strong></div>
           </div>
           <div class="buttons">
-            <button data-action="set-ab-start">设置 A 点</button>
-            <button data-action="set-ab-end">设置 B 点</button>
-            <button data-action="save-ab-history">保存片段</button>
-            <button class="secondary" data-action="clear-ab">清空 A/B</button>
-            <button class="secondary" data-action="seek-ab-start">跳到 A 点</button>
-            <button class="danger" data-action="clear-history">清空历史</button>
+            <button data-action="toggle-play">播放/暂停</button>
+            <button data-action="add-marker">记录打点</button>
+            <button data-action="toggle-loop">开始循环</button>
+            <button data-action="jump-previous">上一个点</button>
+            <button data-action="jump-next">下一个点</button>
+            <button data-action="toggle-panel">收起面板</button>
+            <button data-action="slower">减速</button>
+            <button data-action="faster">加速</button>
+            <button class="danger" data-action="clear-markers">清空打点</button>
           </div>
-        </div>
-        <div class="section">
-          <div class="section-title">当前视频打点</div>
-          <div class="marker-list" data-role="marker-list"></div>
-        </div>
-        <div class="section">
-          <div class="section-title">历史片段</div>
-          <div class="history-list" data-role="history-list"></div>
+          <div class="section">
+            <div class="section-title">A / B 点</div>
+            <div class="ab-row">
+              <div class="ab-item">A 点：<strong data-role="ab-start">未设置</strong></div>
+              <div class="ab-item">B 点：<strong data-role="ab-end">未设置</strong></div>
+            </div>
+            <div class="buttons">
+              <button data-action="set-ab-start">设置 A 点</button>
+              <button data-action="set-ab-end">设置 B 点</button>
+              <button data-action="save-ab-history">保存片段</button>
+              <button class="secondary" data-action="clear-ab">清空 A/B</button>
+              <button class="secondary" data-action="seek-ab-start">跳到 A 点</button>
+              <button class="danger" data-action="clear-history">清空历史</button>
+            </div>
+          </div>
+          <div class="section">
+            <div class="section-title">当前视频打点</div>
+            <div class="marker-list" data-role="marker-list"></div>
+          </div>
+          <div class="section">
+            <div class="section-title">历史片段</div>
+            <div class="history-list" data-role="history-list"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -755,6 +823,7 @@ function ensureRoot() {
 function updatePanel() {
   const root = ensureRoot();
   root.classList.toggle("hidden", !state.panelVisible);
+  root.classList.toggle("collapsed", state.panelCollapsed);
 
   const video = getVideoElement();
   const subtitle = root.querySelector('[data-role="subtitle"]');
@@ -766,6 +835,8 @@ function updatePanel() {
   const abEnd = root.querySelector('[data-role="ab-end"]');
   const markerList = root.querySelector('[data-role="marker-list"]');
   const historyList = root.querySelector('[data-role="history-list"]');
+  const launcher = root.querySelector(".launcher");
+  const headerToggle = root.querySelector(".header-toggle");
 
   subtitle.textContent = video ? getVideoTitle() : "当前页面未检测到视频";
   currentTime.textContent = video ? formatTime(video.currentTime) : "--:--";
@@ -773,6 +844,9 @@ function updatePanel() {
   markerCount.textContent = String(state.markers.length);
   abStart.textContent = Number.isFinite(state.abStart) ? formatTime(state.abStart) : "未设置";
   abEnd.textContent = Number.isFinite(state.abEnd) ? formatTime(state.abEnd) : "未设置";
+  launcher.textContent = state.panelCollapsed ? "扒舞" : "收起";
+  headerToggle.textContent = state.panelCollapsed ? "+" : "-";
+  headerToggle.title = state.panelCollapsed ? "展开面板" : "收起面板";
 
   const range = getLoopRange();
   loop.textContent = state.loopEnabled && range ? formatRange(range.start, range.end) : "关闭";
@@ -925,10 +999,11 @@ async function performAction(type, payload) {
     case "get-state":
       return getState();
     case "toggle-panel":
-      state.panelVisible = !state.panelVisible;
+      state.panelVisible = true;
+      state.panelCollapsed = !state.panelCollapsed;
       await saveSettings();
       updatePanel();
-      return { ...getState(), message: state.panelVisible ? "面板已显示。" : "面板已隐藏。" };
+      return { ...getState(), message: state.panelCollapsed ? "面板已收起。" : "面板已展开。" };
     case "toggle-play":
       togglePlay();
       updatePanel();
