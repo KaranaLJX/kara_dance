@@ -4,6 +4,112 @@ const STORAGE_PREFIX = "dance-helper-markers:";
 const HISTORY_PREFIX = "dance-helper-history:";
 const SETTINGS_KEY = "danceHelperSettings";
 const SPEED_STEPS = [0.3, 0.5, 0.7, 0.8, 0.9, 1, 1.25, 1.5, 2];
+
+function normalizeText(text) {
+  return (text || "").replace(/\s+/g, " ").trim();
+}
+
+function isElementVisible(element) {
+  if (!element || !element.isConnected) {
+    return false;
+  }
+
+  const rect = element.getBoundingClientRect();
+  if (rect.width < 2 || rect.height < 2) {
+    return false;
+  }
+
+  const style = window.getComputedStyle(element);
+  if (
+    style.display === "none" ||
+    style.visibility === "hidden" ||
+    Number.parseFloat(style.opacity || "1") === 0
+  ) {
+    return false;
+  }
+
+  return rect.bottom > 0 && rect.top < window.innerHeight && rect.right > 0 && rect.left < window.innerWidth;
+}
+
+function isLikelyGenericDouyinText(text) {
+  return (
+    !text ||
+    text.length < 2 ||
+    text.includes("海量优质视频内容") ||
+    text.includes("记录美好生活") ||
+    text === "抖音" ||
+    text === "抖音视频"
+  );
+}
+
+function pickVisibleTextBySelectors(selectors) {
+  for (const selector of selectors) {
+    const nodes = Array.from(document.querySelectorAll(selector));
+    for (const node of nodes) {
+      if (!isElementVisible(node)) {
+        continue;
+      }
+
+      const text = normalizeText(
+        (node.getAttribute && (node.getAttribute("content") || node.getAttribute("title"))) || node.textContent
+      );
+      if (!isLikelyGenericDouyinText(text)) {
+        return text;
+      }
+    }
+  }
+
+  return "";
+}
+
+function getDouyinCaptionFallback() {
+  const video = getVideoElement();
+  const videoRect = video ? video.getBoundingClientRect() : null;
+  const nodes = Array.from(document.querySelectorAll("div, span, p, a, h1, h2"));
+  const candidates = [];
+
+  for (const node of nodes) {
+    if (!isElementVisible(node)) {
+      continue;
+    }
+
+    const text = normalizeText(node.textContent);
+    if (isLikelyGenericDouyinText(text) || text.length < 6 || text.length > 160) {
+      continue;
+    }
+    if (node.childElementCount > 3) {
+      continue;
+    }
+
+    const rect = node.getBoundingClientRect();
+    const nearBottomLeft =
+      rect.left < window.innerWidth * 0.35 &&
+      rect.bottom > window.innerHeight * 0.65 &&
+      rect.top < window.innerHeight * 0.95;
+    if (!nearBottomLeft) {
+      continue;
+    }
+
+    let score = 0;
+    score += Math.min(text.length, 80);
+    if (text.includes("#")) {
+      score += 10;
+    }
+    if (videoRect) {
+      const verticalDistance = Math.abs(rect.bottom - videoRect.bottom);
+      score -= Math.min(verticalDistance / 10, 20);
+    }
+
+    candidates.push({
+      text,
+      score
+    });
+  }
+
+  candidates.sort((left, right) => right.score - left.score);
+  return candidates[0] ? candidates[0].text : "";
+}
+
 const SUPPORTED_SITES = [
   {
     key: "bilibili",
@@ -25,25 +131,41 @@ const SUPPORTED_SITES = [
     name: "抖音",
     matches: ["douyin.com", "iesdouyin.com"],
     getTitle() {
-      const selectors = [
-        'meta[property="og:title"]',
-        'meta[name="description"]',
-        'h1[data-e2e]',
-        "h1"
+      const visibleSelectors = [
+        '[data-e2e="video-desc"]',
+        '[data-e2e="browse-video-desc"]',
+        '[data-e2e="feed-active-video-desc"]',
+        '[data-e2e="search-card-desc"]',
+        '[data-e2e="search-video-card-desc"]',
+        '[data-e2e*="desc"]',
+        '[data-e2e*="title"]',
+        "h1",
+        "h2"
       ];
-
-      for (const selector of selectors) {
-        const node = document.querySelector(selector);
-        const content =
-          (node && node.getAttribute && node.getAttribute("content")) ||
-          (node && node.textContent && node.textContent.trim()) ||
-          "";
-        if (content) {
-          return content;
-        }
+      const visibleTitle = pickVisibleTextBySelectors(visibleSelectors);
+      if (visibleTitle) {
+        return visibleTitle;
       }
 
-      return document.title || "抖音视频";
+      const captionFallback = getDouyinCaptionFallback();
+      if (captionFallback) {
+        return captionFallback;
+      }
+
+      const metaTitle = normalizeText(
+        document.querySelector('meta[property="og:title"]')?.getAttribute("content") || ""
+      );
+      if (!isLikelyGenericDouyinText(metaTitle)) {
+        return metaTitle;
+      }
+
+      const metaDescription = normalizeText(document.querySelector('meta[name="description"]')?.getAttribute("content") || "");
+      if (!isLikelyGenericDouyinText(metaDescription)) {
+        return metaDescription;
+      }
+
+      const docTitle = normalizeText(document.title.replace(/\s*-\s*抖音.*$/, ""));
+      return docTitle || "抖音视频";
     },
     getVideoKey() {
       const pathname = location.pathname;
