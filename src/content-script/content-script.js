@@ -197,6 +197,7 @@ const state = {
   selectedSegmentIndex: -1,
   panelVisible: true,
   panelCollapsed: true,
+  panelPosition: null,
   siteKey: "unknown",
   siteName: "网页",
   videoKey: "",
@@ -412,7 +413,8 @@ async function saveSettings() {
   await chrome.storage.local.set({
     [SETTINGS_KEY]: {
       panelVisible: state.panelVisible,
-      panelCollapsed: state.panelCollapsed
+      panelCollapsed: state.panelCollapsed,
+      panelPosition: state.panelPosition
     }
   });
 }
@@ -423,6 +425,16 @@ async function loadSettings() {
   state.panelVisible = settings && typeof settings.panelVisible === "boolean" ? settings.panelVisible : true;
   state.panelCollapsed =
     settings && typeof settings.panelCollapsed === "boolean" ? settings.panelCollapsed : true;
+  state.panelPosition =
+    settings &&
+    settings.panelPosition &&
+    Number.isFinite(settings.panelPosition.left) &&
+    Number.isFinite(settings.panelPosition.top)
+      ? {
+          left: settings.panelPosition.left,
+          top: settings.panelPosition.top
+        }
+      : null;
 }
 
 async function loadMarkers() {
@@ -796,6 +808,8 @@ function ensureStyles() {
       display: flex;
       align-items: flex-start;
       gap: 10px;
+      pointer-events: none;
+      user-select: none;
     }
     #${ROOT_ID}.hidden {
       display: none;
@@ -816,9 +830,11 @@ function ensureStyles() {
       color: #fff;
       font-size: 13px;
       font-weight: 700;
-      cursor: pointer;
       padding: 0 12px;
       white-space: nowrap;
+      pointer-events: auto;
+      touch-action: none;
+      cursor: grab;
     }
     #${ROOT_ID}.collapsed .launcher {
       min-width: 52px;
@@ -827,6 +843,7 @@ function ensureStyles() {
     #${ROOT_ID} .panel-shell {
       width: 336px;
       transition: opacity 0.2s ease, transform 0.2s ease;
+      pointer-events: auto;
     }
     #${ROOT_ID}.collapsed .panel-shell {
       opacity: 0;
@@ -851,6 +868,8 @@ function ensureStyles() {
       align-items: flex-start;
       justify-content: space-between;
       gap: 10px;
+      cursor: grab;
+      touch-action: none;
     }
     #${ROOT_ID} .header-main {
       min-width: 0;
@@ -1023,6 +1042,111 @@ function ensureStyles() {
   document.documentElement.appendChild(style);
 }
 
+function clampRootPosition(root, left, top) {
+  const rect = root.getBoundingClientRect();
+  const margin = 8;
+  const minVisibleSize = 46;
+  const minLeft = Math.min(margin, minVisibleSize - rect.width);
+  const maxLeft = Math.max(margin, window.innerWidth - minVisibleSize);
+  const minTop = Math.min(margin, minVisibleSize - rect.height);
+  const maxTop = Math.max(margin, window.innerHeight - minVisibleSize);
+
+  return {
+    left: Math.min(Math.max(minLeft, left), maxLeft),
+    top: Math.min(Math.max(minTop, top), maxTop)
+  };
+}
+
+function applyRootPosition(root) {
+  if (!state.panelPosition) {
+    root.style.removeProperty("left");
+    root.style.removeProperty("top");
+    root.style.removeProperty("right");
+    return;
+  }
+
+  const position = clampRootPosition(root, state.panelPosition.left, state.panelPosition.top);
+  state.panelPosition = position;
+  root.style.left = `${position.left}px`;
+  root.style.top = `${position.top}px`;
+  root.style.right = "auto";
+}
+
+function bindRootDragging(root) {
+  let dragState = null;
+  let suppressClick = false;
+
+  root.addEventListener("pointerdown", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const handle = target.closest(".launcher, .header");
+    if (!handle || target.closest(".header-toggle")) {
+      return;
+    }
+
+    const rect = root.getBoundingClientRect();
+    dragState = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      left: rect.left,
+      top: rect.top,
+      moved: false
+    };
+    handle.setPointerCapture(event.pointerId);
+  });
+
+  root.addEventListener("pointermove", (event) => {
+    if (!dragState || event.pointerId !== dragState.pointerId) {
+      return;
+    }
+
+    const deltaX = event.clientX - dragState.startX;
+    const deltaY = event.clientY - dragState.startY;
+    if (!dragState.moved && Math.hypot(deltaX, deltaY) < 4) {
+      return;
+    }
+
+    dragState.moved = true;
+    const position = clampRootPosition(root, dragState.left + deltaX, dragState.top + deltaY);
+    state.panelPosition = position;
+    root.style.left = `${position.left}px`;
+    root.style.top = `${position.top}px`;
+    root.style.right = "auto";
+    event.preventDefault();
+  });
+
+  const finishDrag = (event) => {
+    if (!dragState || event.pointerId !== dragState.pointerId) {
+      return;
+    }
+
+    if (dragState.moved) {
+      suppressClick = true;
+      saveSettings().catch((error) => console.error("Failed to save panel position", error));
+    }
+    dragState = null;
+  };
+
+  root.addEventListener("pointerup", finishDrag);
+  root.addEventListener("pointercancel", finishDrag);
+  root.addEventListener(
+    "click",
+    (event) => {
+      if (!suppressClick) {
+        return;
+      }
+      suppressClick = false;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    },
+    true
+  );
+}
+
 function ensureRoot() {
   ensureStyles();
 
@@ -1108,6 +1232,8 @@ function ensureRoot() {
   });
 
   document.body.appendChild(root);
+  bindRootDragging(root);
+  applyRootPosition(root);
   return root;
 }
 
@@ -1115,6 +1241,7 @@ function updatePanel() {
   const root = ensureRoot();
   root.classList.toggle("hidden", !state.panelVisible);
   root.classList.toggle("collapsed", state.panelCollapsed);
+  applyRootPosition(root);
 
   const video = getVideoElement();
   const subtitle = root.querySelector('[data-role="subtitle"]');
@@ -1532,3 +1659,10 @@ if (document.readyState === "loading") {
     console.error("Failed to initialize dance helper", error);
   });
 }
+
+window.addEventListener("resize", () => {
+  const root = document.getElementById(ROOT_ID);
+  if (root && state.panelPosition) {
+    applyRootPosition(root);
+  }
+});
